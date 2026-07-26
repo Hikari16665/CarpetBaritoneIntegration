@@ -103,7 +103,11 @@ public final class PathingControlManager implements IPathingControlManager {
                             baritone.shouldRevalidate(goal, false);
                     baritone.setActiveGoal(goal);
                     if (revalidate) {
-                        baritone.recalculateForProcess(goal);
+                        if (baritone.getPathExecutor() != null) {
+                            baritone.deferRecalculationForProcess(goal);
+                        } else {
+                            baritone.recalculateForProcess(goal);
+                        }
                     }
                 }
             }
@@ -113,7 +117,11 @@ public final class PathingControlManager implements IPathingControlManager {
                             baritone.shouldRevalidate(goal, true);
                     baritone.setActiveGoal(goal);
                     if (revalidate) {
-                        baritone.recalculateForProcess(goal);
+                        if (baritone.getPathExecutor() != null) {
+                            baritone.deferRecalculationForProcess(goal);
+                        } else {
+                            baritone.recalculateForProcess(goal);
+                        }
                     }
                 }
             }

@@ -99,6 +99,7 @@ public final class Baritone implements IBaritone {
     private Future<?> calculationFuture;
     private long calculationGeneration;
     private long nextRecalculationTick;
+    private Goal deferredProcessRecalculation;
     private final ConcurrentLinkedQueue<PathCompletion> pathCompletions =
             new ConcurrentLinkedQueue<>();
 
@@ -291,6 +292,11 @@ public final class Baritone implements IBaritone {
                 }
             }
         }
+        Goal deferred = deferredProcessRecalculation;
+        deferredProcessRecalculation = null;
+        if (deferred != null) {
+            recalculateForProcess(deferred);
+        }
         planAheadAndSplice();
         if (blockTask != null) {
             blockTask.tick();
@@ -333,6 +339,7 @@ public final class Baritone implements IBaritone {
         activeGoal = null;
         consecutivePathFailures = 0;
         pathRecalcPending = false;
+        deferredProcessRecalculation = null;
         if (hadPath) gameEventHandler.onPathEvent(PathEvent.CANCELED);
     }
 
@@ -390,7 +397,7 @@ public final class Baritone implements IBaritone {
             return false;
         }
         if (pathExecutor == null) return true;
-        Goal previous = activeGoal;
+        Goal previous = pathExecutor.getPath().getGoal();
         BlockPos destination = pathExecutor.getPath().getDest();
         if (force && !Objects.equals(previous, goal)
                 && !goal.isInGoal(destination)) return true;
@@ -408,6 +415,10 @@ public final class Baritone implements IBaritone {
         if (pathExecutor != null && !pathExecutor.isSafeToCancel()) return;
         pausePath();
         revalidateAndRecalculate();
+    }
+
+    public void deferRecalculationForProcess(Goal goal) {
+        deferredProcessRecalculation = goal;
     }
 
     private void revalidateAndRecalculate() {
@@ -717,6 +728,7 @@ public final class Baritone implements IBaritone {
                 >= Math.max(1, settings().pathingFailureRetryCount.value)) {
             activeGoal = null;
             pathRecalcPending = false;
+            deferredProcessRecalculation = null;
             return true;
         }
         pathRecalcPending = true;

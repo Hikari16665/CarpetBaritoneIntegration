@@ -16,6 +16,7 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.dimension.DimensionType;
 
 import java.util.Map;
 
@@ -34,6 +35,9 @@ public final class BlockStateInterface {
     private final Map<Long, ExactChunkSnapshot> exactSnapshots;
     private final Map<Long, CachedChunk> compactSnapshots;
     private final boolean threaded;
+    private final int minY;
+    private final int maxY;
+    private final DimensionType dimensionType;
     public final BlockPos.MutableBlockPos isPassableBlockPos = new BlockPos.MutableBlockPos();
     public final BlockGetter access;
     public final BetterWorldBorder worldBorder;
@@ -50,6 +54,9 @@ public final class BlockStateInterface {
         this.world = ctx.world();
         this.cachedWorld = ServerWorldCache.get(world);
         this.threaded = copyLoadedChunks;
+        this.minY = world.getMinY();
+        this.maxY = world.getMaxY();
+        this.dimensionType = world.dimensionType();
         this.exactSnapshots = copyLoadedChunks
                 ? cachedWorld.exactSnapshotView()
                 : Map.of();
@@ -95,7 +102,7 @@ public final class BlockStateInterface {
     }
 
     public BlockState get0(int x, int y, int z) {
-        if (world.isOutsideBuildHeight(y)) {
+        if (y < minY || y >= maxY) {
             return AIR;
         }
         if (threaded) {
@@ -107,7 +114,8 @@ public final class BlockStateInterface {
             CachedChunk chunk = compactSnapshots.get(
                     net.minecraft.world.level.ChunkPos.asLong(
                             x >> 4, z >> 4));
-            return chunk == null ? AIR : chunk.getBlock(x, y, z, world);
+            return chunk == null ? AIR : chunk.getBlock(
+                    x & 15, y - chunk.minY(), z & 15, dimensionType);
         }
         if (!worldContainsLoadedChunk(x, z)) {
             if (!Baritone.settings().chunkCaching.value) return AIR;
