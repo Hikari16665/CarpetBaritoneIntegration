@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "carpetbaritoneintegration",
+  "version": "${version}",
+  "name": "CarpetBaritoneIntegration",
+  "description": "Pure-server Baritone pathing integration for Carpet fake players.",
+  "authors": ["CarpetBaritoneIntegration contributors", "Baritone contributors"],
+  "contact": {},
+  "license": "LGPL-3.0-or-later",
+  "icon": "assets/carpetbaritoneintegration/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "me.nuoyuan.carpetbaritoneintegration.Carpetbaritoneintegration"
+    ]
+  },
+  "mixins": [
+    "carpetbaritoneintegration.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

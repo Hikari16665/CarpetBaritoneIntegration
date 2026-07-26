@@ -1,0 +1,4 @@
+This project contains a dedicated-server adaptation of Baritone.
+It is distributed under GNU LGPL version 3 or later.
+The complete license text is available at baritone/LICENSE and is packaged
+in every built mod JAR.

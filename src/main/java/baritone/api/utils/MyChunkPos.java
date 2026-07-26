@@ -1,0 +1,9 @@
+package baritone.api.utils;
+
+public class MyChunkPos {
+    public int x;
+    public int z;
+    public MyChunkPos() { }
+    public MyChunkPos(int x, int z) { this.x = x; this.z = z; }
+    @Override public String toString() { return x + ", " + z; }
+}

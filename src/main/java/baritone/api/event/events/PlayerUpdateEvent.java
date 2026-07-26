@@ -1,0 +1,7 @@
+package baritone.api.event.events;
+import baritone.api.event.events.type.EventState;
+public final class PlayerUpdateEvent {
+    private final EventState state;
+    public PlayerUpdateEvent(EventState state){this.state=state;}
+    public EventState getState(){return state;}
+}
