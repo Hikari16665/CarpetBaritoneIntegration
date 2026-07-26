@@ -111,8 +111,10 @@ public class CalculationContext {
                 && baritone.getInventoryController().hasGenericThrowaway();
         this.hasWaterBucket = !collectOnly
                 && Baritone.settings().allowWaterBucketFall.value
-                && Inventory.isHotbarSlot(player.getInventory()
-                        .findSlotMatchingItem(STACK_BUCKET_WATER))
+                && baritone.getInventoryController()
+                        .hasAccessibleItem(stack ->
+                                ItemStack.isSameItemSameComponents(
+                                        stack, STACK_BUCKET_WATER))
                 && world.dimension() != Level.NETHER;
         this.canSprint = Baritone.settings().allowSprint.value && player.getFoodData().getFoodLevel() > 6;
         this.placeBlockCost = Baritone.settings().blockPlacementPenalty.value;

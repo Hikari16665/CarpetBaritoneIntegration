@@ -27,12 +27,15 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.enchantment.effects.EnchantmentAttributeEffect;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.HashMap;
@@ -189,7 +192,29 @@ public class ToolSet {
      */
     private double getBestDestructionTime(Block b) {
         ItemStack stack = player.getInventory().getItem(getBestSlot(b, false, true));
-        return calculateSpeedVsBlock(stack, b.defaultBlockState()) * avoidanceMultiplier(b);
+        double best = calculateSpeedVsBlock(
+                stack, b.defaultBlockState());
+        for (ItemStack outer :
+                player.getInventory().getNonEquipmentItems()) {
+            if (!(outer.getItem() instanceof BlockItem blockItem)
+                    || !(blockItem.getBlock() instanceof ShulkerBoxBlock)) {
+                continue;
+            }
+            ItemContainerContents contents = outer.getOrDefault(
+                    DataComponents.CONTAINER, ItemContainerContents.EMPTY);
+            for (ItemStack nested : contents.nonEmptyItems()) {
+                if (!Baritone.settings().useSwordToMine.value
+                        && nested.is(ItemTags.SWORDS)) continue;
+                if (Baritone.settings().itemSaver.value
+                        && nested.getMaxDamage() > 1
+                        && nested.getDamageValue()
+                        + Baritone.settings().itemSaverThreshold.value
+                        >= nested.getMaxDamage()) continue;
+                best = Math.max(best, calculateSpeedVsBlock(
+                        nested, b.defaultBlockState()));
+            }
+        }
+        return best * avoidanceMultiplier(b);
     }
 
     private double avoidanceMultiplier(Block b) {

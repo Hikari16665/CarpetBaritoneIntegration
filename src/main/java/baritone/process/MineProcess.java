@@ -162,6 +162,9 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             java.util.Optional<Rotation> rotation = RotationUtils.reachable(ctx, reachable);
             if (rotation.isPresent()) {
                 breaking = reachable;
+                baritone.getInventoryController()
+                        .ensureBestToolOnHotbar(
+                                BlockStateInterface.get(ctx, reachable));
                 MovementHelper.switchToBestToolFor(
                         ctx, BlockStateInterface.get(ctx, reachable),
                         new ToolSet(ctx.player()), Baritone.settings().preferSilkTouch.value);
@@ -303,6 +306,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             java.util.Optional<Rotation> rotation =
                     RotationUtils.reachable(ctx, pos);
             if (rotation.isEmpty()) continue;
+            baritone.getInventoryController()
+                    .ensureBestToolOnHotbar(state);
             MovementHelper.switchToBestToolFor(
                     ctx, state, new ToolSet(ctx.player()),
                     Baritone.settings().preferSilkTouch.value);
@@ -451,10 +456,9 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     }
 
     private int matchingInventoryCount() {
-        return ctx.player().getInventory().getNonEquipmentItems().stream()
-                .filter(stack -> filter.has(stack)
-                        || desiredDropItems.contains(stack.getItem()))
-                .mapToInt(ItemStack::getCount).sum();
+        return baritone.getInventoryController().countAccessible(
+                stack -> filter.has(stack)
+                        || desiredDropItems.contains(stack.getItem()));
     }
 
     private void primeDesiredDrops() {

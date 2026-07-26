@@ -56,9 +56,9 @@ public final class ElytraProcess implements IElytraProcess {
         if (!chest.is(Items.ELYTRA)) {
             throw new IllegalArgumentException("假人胸甲栏没有鞘翅");
         }
-        boolean hasRocket = baritone.getPlayerContext().player()
-                .getInventory().getNonEquipmentItems().stream()
-                .anyMatch(stack -> stack.is(Items.FIREWORK_ROCKET));
+        boolean hasRocket = baritone.getInventoryController()
+                .hasAccessibleItem(
+                        stack -> stack.is(Items.FIREWORK_ROCKET));
         if (!hasRocket) {
             throw new IllegalArgumentException(
                     "假人物品栏没有烟花火箭，无法爬升到巡航高度");

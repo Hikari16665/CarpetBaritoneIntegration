@@ -13,6 +13,8 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.item.component.ItemContainerContents;
 import baritone.utils.ToolSet;
 
 import java.util.Objects;
@@ -32,7 +34,8 @@ public final class ServerInventoryController {
     }
 
     public boolean hasGenericThrowaway() {
-        return findThrowawaySlot() >= 0;
+        return hasAccessibleItem(
+                stack -> isAcceptable(stack.getItem()));
     }
 
     public boolean selectThrowawayForLocation(boolean select, int x, int y, int z) {
@@ -42,11 +45,21 @@ public final class ServerInventoryController {
                     .getBlockState(new net.minecraft.core.BlockPos(x, y, z));
             BlockState wanted = baritone.getBuilderProcess().placeAt(x, y, z, current);
             if (wanted != null) {
-                slot = findSlot(stack -> stack.getItem() instanceof BlockItem blockItem
-                        && blockItem.getBlock() == wanted.getBlock());
+                Predicate<ItemStack> wantedBlock =
+                        stack -> stack.getItem() instanceof BlockItem blockItem
+                                && blockItem.getBlock() == wanted.getBlock();
+                slot = findSlot(wantedBlock);
+                if (slot < 0 && selectItem(wantedBlock)) {
+                    return true;
+                }
             }
         }
-        if (slot < 0) slot = findThrowawaySlot();
+        if (slot < 0) {
+            if (!selectItem(stack -> isAcceptable(stack.getItem()))) {
+                return false;
+            }
+            return true;
+        }
         if (slot < 0) {
             return false;
         }
@@ -57,15 +70,9 @@ public final class ServerInventoryController {
     }
 
     public boolean selectBlock(Block block) {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
-        for (int index = 0; index < inventory.size(); index++) {
-            ItemStack stack = inventory.get(index);
-            if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() == block) {
-                selectInventorySlot(index, 7);
-                return true;
-            }
-        }
-        return false;
+        return selectItem(stack ->
+                stack.getItem() instanceof BlockItem blockItem
+                        && blockItem.getBlock() == block);
     }
 
     public boolean selectItem(Predicate<ItemStack> desired) {
@@ -76,7 +83,36 @@ public final class ServerInventoryController {
                 return true;
             }
         }
+        if (extractOneFromShulker(desired)) {
+            for (int index = 0; index < inventory.size(); index++) {
+                if (desired.test(inventory.get(index))) {
+                    selectInventorySlot(index, 7);
+                    return true;
+                }
+            }
+        }
         return false;
+    }
+
+    public boolean hasAccessibleItem(Predicate<ItemStack> desired) {
+        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+            if (desired.test(stack)) return true;
+            if (isShulker(stack) && contents(stack).nonEmptyStream()
+                    .anyMatch(desired)) return true;
+        }
+        return false;
+    }
+
+    public int countAccessible(Predicate<ItemStack> desired) {
+        int result = 0;
+        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+            if (desired.test(stack)) result += stack.getCount();
+            if (isShulker(stack)) {
+                result += contents(stack).nonEmptyStream()
+                        .filter(desired).mapToInt(ItemStack::getCount).sum();
+            }
+        }
+        return result;
     }
 
     /**
@@ -86,22 +122,20 @@ public final class ServerInventoryController {
      */
     public void ensureBestToolOnHotbar(BlockState state) {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        ToolLocation nestedBest = bestNestedTool(state);
+        double outerBestSpeed = inventory.stream()
+                .filter(this::usableTool)
+                .mapToDouble(stack ->
+                        ToolSet.calculateSpeedVsBlock(stack, state))
+                .max().orElse(-1.0D);
+        if (nestedBest != null && nestedBest.speed > outerBestSpeed) {
+            extractFromShulker(nestedBest.boxSlot, nestedBest.innerSlot);
+        }
         int bestIndex = -1;
         double bestSpeed = -1.0D;
         for (int index = 0; index < inventory.size(); index++) {
             ItemStack stack = inventory.get(index);
-            if (stack.isEmpty()) {
-                continue;
-            }
-            if (Baritone.settings().itemSaver.value
-                    && stack.getMaxDamage() > 1
-                    && stack.getDamageValue() + Baritone.settings().itemSaverThreshold.value
-                    >= stack.getMaxDamage()) {
-                continue;
-            }
-            if (!stack.getItem().components().has(DataComponents.TOOL)) {
-                continue;
-            }
+            if (!usableTool(stack)) continue;
             double speed = ToolSet.calculateSpeedVsBlock(stack, state);
             if (speed > bestSpeed) {
                 bestSpeed = speed;
@@ -115,6 +149,115 @@ public final class ServerInventoryController {
             player.inventoryMenu.broadcastChanges();
         }
     }
+
+    private ToolLocation bestNestedTool(BlockState state) {
+        ToolLocation best = null;
+        NonNullList<ItemStack> inventory =
+                player.getInventory().getNonEquipmentItems();
+        for (int boxSlot = 0; boxSlot < inventory.size(); boxSlot++) {
+            ItemStack box = inventory.get(boxSlot);
+            if (!isShulker(box)) continue;
+            NonNullList<ItemStack> inner =
+                    NonNullList.withSize(27, ItemStack.EMPTY);
+            contents(box).copyInto(inner);
+            for (int innerSlot = 0; innerSlot < inner.size(); innerSlot++) {
+                ItemStack tool = inner.get(innerSlot);
+                if (!usableTool(tool)) continue;
+                double speed = ToolSet.calculateSpeedVsBlock(tool, state);
+                if (best == null || speed > best.speed) {
+                    best = new ToolLocation(boxSlot, innerSlot, speed);
+                }
+            }
+        }
+        return best;
+    }
+
+    private boolean usableTool(ItemStack stack) {
+        if (stack.isEmpty()
+                || !stack.getItem().components().has(DataComponents.TOOL)) {
+            return false;
+        }
+        return !Baritone.settings().itemSaver.value
+                || stack.getMaxDamage() <= 1
+                || stack.getDamageValue()
+                + Baritone.settings().itemSaverThreshold.value
+                < stack.getMaxDamage();
+    }
+
+    private boolean extractOneFromShulker(Predicate<ItemStack> desired) {
+        NonNullList<ItemStack> inventory =
+                player.getInventory().getNonEquipmentItems();
+        for (int boxSlot = 0; boxSlot < inventory.size(); boxSlot++) {
+            ItemStack box = inventory.get(boxSlot);
+            if (!isShulker(box)) continue;
+            NonNullList<ItemStack> inner =
+                    NonNullList.withSize(27, ItemStack.EMPTY);
+            contents(box).copyInto(inner);
+            for (int innerSlot = 0; innerSlot < inner.size(); innerSlot++) {
+                if (desired.test(inner.get(innerSlot))) {
+                    return extractFromShulker(boxSlot, innerSlot);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean extractFromShulker(int boxSlot, int innerSlot) {
+        NonNullList<ItemStack> inventory =
+                player.getInventory().getNonEquipmentItems();
+        ItemStack box = inventory.get(boxSlot);
+        if (!isShulker(box)) return false;
+        NonNullList<ItemStack> inner =
+                NonNullList.withSize(27, ItemStack.EMPTY);
+        contents(box).copyInto(inner);
+        ItemStack extracted = inner.get(innerSlot);
+        if (extracted.isEmpty()) return false;
+        int before = extracted.getCount();
+        player.getInventory().add(extracted);
+        int inserted = before - extracted.getCount();
+        boolean swapped = false;
+        if (inserted == 0) {
+            // A full inventory can still access the nested item by swapping a
+            // normal outer stack into the slot it just vacated. Never create
+            // illegal shulker-in-shulker nesting.
+            for (int outerSlot = 0;
+                 outerSlot < inventory.size(); outerSlot++) {
+                if (outerSlot == boxSlot) continue;
+                ItemStack displaced = inventory.get(outerSlot);
+                if (displaced.isEmpty() || isShulker(displaced)) continue;
+                inventory.set(outerSlot, extracted);
+                inner.set(innerSlot, displaced);
+                inserted = before;
+                extracted = ItemStack.EMPTY;
+                swapped = true;
+                break;
+            }
+        }
+        if (!swapped) {
+            inner.set(innerSlot, extracted.isEmpty()
+                    ? ItemStack.EMPTY : extracted);
+        }
+        box.set(DataComponents.CONTAINER,
+                ItemContainerContents.fromItems(inner));
+        if (inserted > 0) {
+            player.inventoryMenu.broadcastChanges();
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isShulker(ItemStack stack) {
+        return stack.getItem() instanceof BlockItem blockItem
+                && blockItem.getBlock() instanceof ShulkerBoxBlock;
+    }
+
+    private static ItemContainerContents contents(ItemStack stack) {
+        return stack.getOrDefault(DataComponents.CONTAINER,
+                ItemContainerContents.EMPTY);
+    }
+
+    private record ToolLocation(
+            int boxSlot, int innerSlot, double speed) {}
 
     private int findThrowawaySlot() {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();

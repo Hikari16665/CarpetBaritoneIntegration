@@ -102,6 +102,9 @@ public class MovementFall extends Movement {
 
         boolean isWater = destState.getFluidState().getType() instanceof WaterFluid;
         if (!isWater && willPlaceBucket() && !playerFeet.equals(dest)) {
+            baritone.getInventoryController().selectItem(stack ->
+                    ItemStack.isSameItemSameComponents(
+                            stack, STACK_BUCKET_WATER));
             if (!Inventory.isHotbarSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_WATER)) || ctx.world().dimension() == Level.NETHER) {
                 return state.setStatus(MovementStatus.UNREACHABLE);
             }
