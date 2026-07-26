@@ -64,6 +64,7 @@ public class CalculationContext {
     public final boolean canSprint;
     protected final double placeBlockCost; // protected because you should call the function instead
     public final boolean allowBreak;
+    public final boolean blockModificationForbidden;
     public final List<Block> allowBreakAnyway;
     public final boolean allowParkour;
     public final boolean allowParkourPlace;
@@ -103,15 +104,24 @@ public class CalculationContext {
         this.height = maxY - minY;
         this.bsi = new BlockStateInterface(baritone.getPlayerContext(), forUseOnAnotherThread);
         this.toolSet = new ToolSet(player);
-        this.hasThrowaway = Baritone.settings().allowPlace.value
+        boolean collectOnly = baritone instanceof Baritone serverBaritone
+                && serverBaritone.usesCollectItemCostModel();
+        this.blockModificationForbidden = collectOnly;
+        this.hasThrowaway = !collectOnly && Baritone.settings().allowPlace.value
                 && baritone.getInventoryController().hasGenericThrowaway();
-        this.hasWaterBucket = Baritone.settings().allowWaterBucketFall.value && Inventory.isHotbarSlot(player.getInventory().findSlotMatchingItem(STACK_BUCKET_WATER)) && world.dimension() != Level.NETHER;
+        this.hasWaterBucket = !collectOnly
+                && Baritone.settings().allowWaterBucketFall.value
+                && Inventory.isHotbarSlot(player.getInventory()
+                        .findSlotMatchingItem(STACK_BUCKET_WATER))
+                && world.dimension() != Level.NETHER;
         this.canSprint = Baritone.settings().allowSprint.value && player.getFoodData().getFoodLevel() > 6;
         this.placeBlockCost = Baritone.settings().blockPlacementPenalty.value;
-        this.allowBreak = Baritone.settings().allowBreak.value;
-        this.allowBreakAnyway = new ArrayList<>(Baritone.settings().allowBreakAnyway.value);
+        this.allowBreak = !collectOnly && Baritone.settings().allowBreak.value;
+        this.allowBreakAnyway = collectOnly ? new ArrayList<>()
+                : new ArrayList<>(Baritone.settings().allowBreakAnyway.value);
         this.allowParkour = Baritone.settings().allowParkour.value;
-        this.allowParkourPlace = Baritone.settings().allowParkourPlace.value;
+        this.allowParkourPlace = !collectOnly
+                && Baritone.settings().allowParkourPlace.value;
         this.allowJumpAtBuildLimit = Baritone.settings().allowJumpAtBuildLimit.value;
         this.allowParkourAscend = Baritone.settings().allowParkourAscend.value;
         this.assumeWalkOnWater = Baritone.settings().assumeWalkOnWater.value;
@@ -154,7 +164,14 @@ public class CalculationContext {
             }
         }
         this.waterWalkSpeed = ActionCosts.WALK_ONE_IN_WATER_COST * (1 - waterSpeedMultiplier) + ActionCosts.WALK_ONE_BLOCK_COST * waterSpeedMultiplier;
-        this.breakBlockAdditionalCost = Baritone.settings().blockBreakAdditionalPenalty.value;
+        // Mining is expected to open tunnels. Keep the real tool-dependent
+        // break duration, but do not apply the ordinary navigation aversion
+        // to every block in a tunnel.
+        this.breakBlockAdditionalCost =
+                baritone instanceof Baritone serverBaritone
+                        && serverBaritone.usesMiningCostModel()
+                ? Baritone.settings().mineBlockBreakAdditionalPenalty.value
+                : Baritone.settings().blockBreakAdditionalPenalty.value;
         this.backtrackCostFavoringCoefficient = Baritone.settings().backtrackCostFavoringCoefficient.value;
         this.jumpPenalty = Baritone.settings().jumpPenalty.value;
         this.walkOnWaterOnePenalty = Baritone.settings().walkOnWaterOnePenalty.value;
@@ -215,6 +232,7 @@ public class CalculationContext {
     }
 
     public double placeBucketCost() {
+        if (blockModificationForbidden) return COST_INF;
         return placeBlockCost; // shrug
     }
 

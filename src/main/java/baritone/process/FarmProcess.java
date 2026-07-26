@@ -55,6 +55,11 @@ public final class FarmProcess implements IFarmProcess {
 
     public void serverTick() {
         if (!active || baritone.getPathExecutor() != null) return;
+        // Release the previous interaction before choosing this tick's
+        // action. Otherwise a harvested target leaves ATTACK held while the
+        // process scans or walks toward the next crop.
+        baritone.getInputOverrideHandler().clearAllKeys();
+        baritone.getInputController().tick();
         if (replantAt != null && tryReplant()) return;
         if (target != null && !readyForHarvest(
                 baritone.getPlayerContext().world(), target,
@@ -75,7 +80,8 @@ public final class FarmProcess implements IFarmProcess {
         Optional<Rotation> rotation = RotationUtils.reachable(
                 baritone.getPlayerContext(), target, RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE);
         if (rotation.isEmpty()) {
-            if (!baritone.pathToGoal(new GoalGetToBlock(target), 2_000L, 8_000L)) {
+            if (!baritone.pathToGoal(
+                    new BuilderProcess.GoalBreak(target), 2_000L, 8_000L)) {
                 target = null;
             }
             return;
@@ -187,9 +193,17 @@ public final class FarmProcess implements IFarmProcess {
 
     @Override public boolean isActive() { return active; }
     @Override public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
+        if (target != null && RotationUtils.reachable(
+                baritone.getPlayerContext(), target,
+                RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE).isPresent()) {
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
         return new PathingCommand(
-                target == null ? null : new GoalGetToBlock(target),
+                target == null ? null : new BuilderProcess.GoalBreak(target),
                 PathingCommandType.SET_GOAL_AND_PATH);
+    }
+    public boolean isDesiredFarmDrop(net.minecraft.world.item.ItemStack stack) {
+        return active && !stack.isEmpty() && FARM_DROPS.contains(stack.getItem());
     }
     @Override public boolean isTemporary() { return false; }
     @Override public void onLostControl() { active = false; target = null; replantAt = null; }

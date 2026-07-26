@@ -58,6 +58,12 @@ public final class Settings {
     public final Setting<Long> planAheadFailureTimeoutMS = new Setting<>(5000L);
     public final Setting<Integer> pathingFailureRetryCount = new Setting<>(3);
     public final Setting<Integer> pathingFailureBackoffTicks = new Setting<>(10);
+    public final Setting<Long> minePrimaryTimeoutMS = new Setting<>(2000L);
+    public final Setting<Long> mineFailureTimeoutMS = new Setting<>(10000L);
+    public final Setting<Integer> minePathingFailureRetryCount = new Setting<>(5);
+    public final Setting<Integer> mineBlacklistCooldownTicks = new Setting<>(600);
+    public final Setting<Double> mineBlockBreakAdditionalPenalty =
+            new Setting<>(0.0D);
     public final Setting<Boolean> splicePath = new Setting<>(true);
     public final Setting<Boolean> blacklistClosestOnFailure = new Setting<>(true);
     public final Setting<Integer> mineMaxOreLocationsCount = new Setting<>(64);
@@ -94,6 +100,10 @@ public final class Settings {
     public final Setting<Boolean> elytraAutoJump = new Setting<>(false);
     public final Setting<Integer> elytraMinimumDurability = new Setting<>(5);
     public final Setting<Boolean> elytraAllowEmergencyLand = new Setting<>(true);
+    public final Setting<Integer> elytraCruiseAltitude = new Setting<>(1000);
+    public final Setting<Integer> elytraGlideLowAltitude = new Setting<>(400);
+    public final Setting<Integer> elytraBoostIntervalTicks = new Setting<>(30);
+    public final Setting<Integer> elytraLandingApproachDistance = new Setting<>(80);
     public final Setting<Boolean> doBedWaypoints = new Setting<>(true);
     public final Setting<Boolean> doDeathWaypoints = new Setting<>(true);
     public final Setting<Double> blockReachDistance = new Setting<>(4.5D);
@@ -118,6 +128,20 @@ public final class Settings {
             Blocks.NETHERRACK.asItem(),
             Blocks.STONE.asItem()
     )));
+    public final Setting<List<Item>> trashItems =
+            new Setting<>(new ArrayList<>(List.of(
+                    Blocks.STONE.asItem(),
+                    Blocks.COBBLESTONE.asItem(),
+                    Blocks.DEEPSLATE.asItem(),
+                    Blocks.COBBLED_DEEPSLATE.asItem(),
+                    Blocks.DIRT.asItem(),
+                    Blocks.GRAVEL.asItem(),
+                    Blocks.NETHERRACK.asItem(),
+                    Blocks.GRANITE.asItem(),
+                    Blocks.DIORITE.asItem(),
+                    Blocks.ANDESITE.asItem(),
+                    Blocks.TUFF.asItem()
+            )));
 
     // Walking path calculation and execution settings.
     public final Setting<Boolean> allowBreak = new Setting<>(true);

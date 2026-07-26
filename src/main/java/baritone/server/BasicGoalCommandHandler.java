@@ -29,6 +29,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.item.Item;
 
 import java.io.File;
 import java.util.Locale;
@@ -91,9 +92,11 @@ public final class BasicGoalCommandHandler {
         String[] args = command.isEmpty() ? new String[0] : command.split("\\s+");
         if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
             reply(fakePlayer, sender,
-                    "可用: goto, come, y, mine <方块> [数量], break <x> <y> <z>, "
+                    "可用: goto, come, y, mine <方块...> [总数量], break <x> <y> <z>, "
                             + "place <方块> <x> <y> <z>, runaway <距离>, avoid <on|off>, "
-                            + "follow <玩家>, stop, status, help");
+                            + "collectItem <物品> <数量> <玩家>, follow <玩家>, "
+                            + "giveAll <玩家>, trash <list|add|remove>, "
+                            + "stop, status, help");
             return;
         }
 
@@ -105,7 +108,7 @@ public final class BasicGoalCommandHandler {
             case "goto" -> startGoto(sender, fakePlayer, baritone, args);
             case "come" -> {
                 if (args.length != 1) {
-                    throw new IllegalArgumentException("用法: baritone come");
+                    throw new IllegalArgumentException("用法: cbi come");
                 }
                 BetterBlockPos senderFeet = BetterBlockPos.from(sender.blockPosition());
                 startGoal(sender, fakePlayer, baritone,
@@ -119,6 +122,12 @@ public final class BasicGoalCommandHandler {
                 startGoal(sender, fakePlayer, baritone, new GoalYLevel(y), "高度 " + y);
             }
             case "mine" -> startMine(sender, fakePlayer, baritone, args);
+            case "trash", "trashlist" ->
+                    manageTrashList(sender, fakePlayer, args);
+            case "collectitem", "collect_item", "collect" ->
+                    startCollectItem(sender, fakePlayer, baritone, args);
+            case "giveall", "give_all" ->
+                    startGiveAll(sender, fakePlayer, baritone, args);
             case "break" -> startBreak(sender, fakePlayer, baritone, args);
             case "place" -> startPlace(sender, fakePlayer, baritone, args);
             case "follow" -> startFollow(sender, fakePlayer, baritone, args);
@@ -171,16 +180,113 @@ public final class BasicGoalCommandHandler {
     private static void startMine(
             ServerPlayer sender, ServerPlayer fakePlayer, Baritone baritone, String[] args
     ) {
-        if (args.length < 2 || args.length > 3) {
-            throw new IllegalArgumentException("用法: cbi mine <block_id> [数量]");
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "用法: cbi mine <block_id...> [总数量]");
         }
-        Block block = block(args[1]);
-        int count = args.length == 3 ? positive(args[2], "数量") : 1;
+        int blockEnd = args.length;
+        int count = 1;
+        if (args.length > 2 && args[args.length - 1].matches("[0-9]+")) {
+            count = positive(args[args.length - 1], "数量");
+            blockEnd--;
+        }
+        java.util.List<Block> targets = new java.util.ArrayList<>();
+        for (int index = 1; index < blockEnd; index++) {
+            for (String id : args[index].split(",")) {
+                if (!id.isBlank()) targets.add(block(id));
+            }
+        }
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException("至少提供一个目标方块 ID");
+        }
         baritone.getMineProcess().mineWithFeedback(
                 count,
-                new BlockOptionalMetaLookup(block),
+                new BlockOptionalMetaLookup(targets.toArray(Block[]::new)),
                 message -> reply(fakePlayer, sender, message));
-        reply(fakePlayer, sender, "开始搜索并挖掘 " + args[1] + "，数量 " + count);
+        String names = targets.stream()
+                .map(BuiltInRegistries.BLOCK::getKey)
+                .map(ResourceLocation::toString)
+                .collect(java.util.stream.Collectors.joining(", "));
+        reply(fakePlayer, sender, "开始搜索并挖掘 [" + names
+                + "]，总数量 " + count);
+    }
+
+    private static void manageTrashList(
+            ServerPlayer sender, ServerPlayer fakePlayer, String[] args) {
+        if (args.length == 1 || args.length == 2
+                && args[1].equalsIgnoreCase("list")) {
+            String values = Baritone.settings().trashItems.value.stream()
+                    .map(BuiltInRegistries.ITEM::getKey)
+                    .map(ResourceLocation::toString)
+                    .sorted()
+                    .collect(java.util.stream.Collectors.joining(", "));
+            reply(fakePlayer, sender, "垃圾黑名单（命中后全部丢弃）: "
+                    + (values.isEmpty() ? "空" : values));
+            return;
+        }
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "用法: cbi trash <list|add|remove> [item_id]");
+        }
+        Item selected = item(args[2]);
+        if (args[1].equalsIgnoreCase("add")) {
+            if (!Baritone.settings().trashItems.value.contains(selected)) {
+                Baritone.settings().trashItems.value.add(selected);
+            }
+            reply(fakePlayer, sender, "已加入垃圾黑名单: "
+                    + BuiltInRegistries.ITEM.getKey(selected));
+        } else if (args[1].equalsIgnoreCase("remove")) {
+            Baritone.settings().trashItems.value.remove(selected);
+            reply(fakePlayer, sender, "已移出垃圾黑名单: "
+                    + BuiltInRegistries.ITEM.getKey(selected));
+        } else {
+            throw new IllegalArgumentException(
+                    "用法: cbi trash <list|add|remove> [item_id]");
+        }
+    }
+
+    private static void startCollectItem(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 4) {
+            throw new IllegalArgumentException(
+                    "用法: cbi collectItem <item_id> <数量> <接收玩家>");
+        }
+        Item requested = item(args[1]);
+        int count = positive(args[2], "数量");
+        ServerPlayer recipient = fakePlayer.getServer().getPlayerList()
+                .getPlayerByName(args[3]);
+        if (recipient == null || recipient == fakePlayer) {
+            throw new IllegalArgumentException(
+                    "找不到可接收物品的玩家: " + args[3]);
+        }
+        baritone.cancelAll();
+        baritone.getCollectItemProcess().collect(
+                requested, count, recipient,
+                message -> reply(fakePlayer, sender, message));
+        reply(fakePlayer, sender, "开始收集 " + args[1] + " ×" + count
+                + "，完成后交给 " + recipient.getScoreboardName());
+    }
+
+    private static void startGiveAll(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 2) {
+            throw new IllegalArgumentException(
+                    "用法: cbi giveAll <playerName>");
+        }
+        ServerPlayer recipient = fakePlayer.getServer().getPlayerList()
+                .getPlayerByName(args[1]);
+        if (recipient == null || recipient == fakePlayer) {
+            throw new IllegalArgumentException(
+                    "找不到可接收物品的玩家: " + args[1]);
+        }
+        baritone.cancelAll();
+        baritone.getGiveAllProcess().giveAll(
+                recipient,
+                message -> reply(fakePlayer, sender, message));
+        reply(fakePlayer, sender, "开始前往 "
+                + recipient.getScoreboardName() + " 并交付全部物品");
     }
 
     private static void startBreak(
@@ -460,6 +566,19 @@ public final class BasicGoalCommandHandler {
             throw new IllegalArgumentException("不能把空气作为方块目标");
         }
         return block;
+    }
+
+    private static Item item(String value) {
+        ResourceLocation id = ResourceLocation.tryParse(
+                value.indexOf(':') < 0 ? "minecraft:" + value : value);
+        if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+            throw new IllegalArgumentException("未知物品 ID: " + value);
+        }
+        Item item = BuiltInRegistries.ITEM.getValue(id);
+        if (item == net.minecraft.world.item.Items.AIR) {
+            throw new IllegalArgumentException("不能把空气作为物品目标");
+        }
+        return item;
     }
 
     private static String status(Baritone baritone) {

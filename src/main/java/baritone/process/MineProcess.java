@@ -34,6 +34,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -58,7 +62,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
 
     private BlockOptionalMetaLookup filter;
     private final List<BlockPos> knownOreLocations = new ArrayList<>();
-    private final Set<BlockPos> blacklist = new HashSet<>();
+    private final Map<BlockPos, Long> blacklistUntil = new HashMap<>();
     private final Map<BlockPos, Long> anticipatedDrops = new HashMap<>();
     private final Set<UUID> ignoredDrops = new HashSet<>();
     private final Set<Item> desiredDropItems = new HashSet<>();
@@ -72,6 +76,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     private ItemEntity collecting;
     private int collectionTicks;
     private int nextDropScanTick;
+    private BlockPos lastSoleFailedTarget;
+    private int soleTargetFailureRounds;
 
     public MineProcess(Baritone baritone) {
         super(baritone);
@@ -94,10 +100,36 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (calcFailed) {
             BlockPos closest = knownOreLocations.stream()
                     .min(Comparator.comparingDouble(ctx.playerFeet()::distSqr)).orElse(null);
-            if (closest != null && Baritone.settings().blacklistClosestOnFailure.value) {
-                blacklist.add(closest);
-                knownOreLocations.remove(closest);
-                feedback.accept("无法到达 " + format(closest) + "，已加入本次任务黑名单并重新扫描");
+            if (closest != null && knownOreLocations.size() == 1
+                    && Baritone.settings().blacklistClosestOnFailure.value) {
+                if (closest.equals(lastSoleFailedTarget)) {
+                    soleTargetFailureRounds++;
+                } else {
+                    lastSoleFailedTarget = closest;
+                    soleTargetFailureRounds = 1;
+                }
+                if (soleTargetFailureRounds >= 2) {
+                    long cooldown = Math.max(1,
+                            Baritone.settings().mineBlacklistCooldownTicks.value);
+                    blacklistUntil.put(
+                            closest, (long) tickCount + cooldown);
+                    knownOreLocations.remove(closest);
+                    feedback.accept("目标 " + format(closest)
+                            + " 已用完整采矿预算失败两轮，暂时跳过 "
+                            + cooldown / 20 + " 秒后会重新尝试");
+                    lastSoleFailedTarget = null;
+                    soleTargetFailureRounds = 0;
+                } else {
+                    feedback.accept("目标 " + format(closest)
+                            + " 首轮寻路失败，保留目标并用完整预算重算");
+                }
+            } else if (closest != null) {
+                // A composite search failure cannot be attributed to whichever
+                // ore happens to be closest to the player.
+                lastSoleFailedTarget = null;
+                soleTargetFailureRounds = 0;
+                feedback.accept("复合采矿路径暂未算出，保留全部 "
+                        + knownOreLocations.size() + " 个矿物目标并重算");
             } else if (!Baritone.settings().exploreForBlocks.value) {
                 feedback.accept("没有可到达的目标方块，挖掘任务结束");
                 onLostControl();
@@ -130,10 +162,13 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             java.util.Optional<Rotation> rotation = RotationUtils.reachable(ctx, reachable);
             if (rotation.isPresent()) {
                 breaking = reachable;
-                rememberDesiredDrops(reachable);
                 MovementHelper.switchToBestToolFor(
                         ctx, BlockStateInterface.get(ctx, reachable),
                         new ToolSet(ctx.player()), Baritone.settings().preferSilkTouch.value);
+                // Loot tables depend on the tool. Resolve the desired drops only
+                // after upstream auto-tool selection, otherwise an ore first
+                // reached with a sword can incorrectly produce an empty result.
+                rememberDesiredDrops(reachable);
                 baritone.getInputController().setBlockBreakTarget(reachable);
                 baritone.getLookBehavior().updateTarget(rotation.get(), true);
                 baritone.getInputOverrideHandler().clearAllKeys();
@@ -191,6 +226,14 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             return false;
         }
         if (ctx.player().distanceToSqr(collecting) <= 2.25D) {
+            if (clearDropAccess()) {
+                // Clearing a pickup pocket is useful progress. Do not let the
+                // ordinary ten-second pickup timeout expire halfway through a
+                // few legitimately mineable obstruction blocks.
+                collectionTicks = Math.min(
+                        collectionTicks, DROP_TIMEOUT_TICKS / 2);
+                return true;
+            }
             Rotation rotation = RotationUtils.calcRotationFromVec3d(
                     ctx.playerHead(), collecting.position(), ctx.playerRotations())
                     .withPitch(ctx.playerRotations().getPitch());
@@ -200,6 +243,82 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             baritone.getInputController().tick();
         }
         return true;
+    }
+
+    /**
+     * A dropped item one block forward and one block down can be within the
+     * pickup goal radius while still separated by a solid lip or wall. In
+     * that case MOVE_FORWARD never makes progress. Clear the ray obstruction
+     * first, then a small pickup pocket at the item's level and above.
+     */
+    private boolean clearDropAccess() {
+        if (collecting == null) return false;
+        Vec3 eyes = ctx.player().getEyePosition();
+        Vec3 item = collecting.position().add(0.0D, 0.2D, 0.0D);
+        List<BlockPos> candidates = new ArrayList<>();
+        HitResult hit = ctx.world().clip(new ClipContext(
+                eyes, item,
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                ctx.player()));
+        BlockPos obstruction = hit instanceof BlockHitResult blockHit
+                && hit.getType() == HitResult.Type.BLOCK
+                ? blockHit.getBlockPos().immutable() : null;
+        if (originSupport(collecting).equals(obstruction)) {
+            obstruction = null;
+        }
+        // With a clear ray, give ordinary pickup movement half a second
+        // before widening the pocket. This avoids mining harmless neighboring
+        // walls whenever an item is already directly collectible.
+        if (obstruction == null && collectionTicks < 10) return false;
+        if (obstruction != null) candidates.add(obstruction);
+        final BlockPos primaryObstruction = obstruction;
+
+        BlockPos origin = collecting.blockPosition();
+        // Never include origin.below(): it normally supports the item and
+        // breaking it would make the drop fall farther away.
+        for (int dy = 0; dy <= 2; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    BlockPos pos = origin.offset(dx, dy, dz);
+                    if (!candidates.contains(pos)) {
+                        candidates.add(pos.immutable());
+                    }
+                }
+            }
+        }
+        CalculationContext calculation = new CalculationContext(baritone);
+        candidates.sort(Comparator
+                .comparingInt((BlockPos pos) ->
+                        pos.equals(primaryObstruction) ? 0
+                                : pos.equals(origin) ? 1
+                                : pos.getY() == origin.getY() ? 2 : 3)
+                .thenComparingDouble(pos ->
+                        ctx.player().getEyePosition().distanceToSqr(
+                                pos.getCenter())));
+        for (BlockPos pos : candidates) {
+            BlockState state = ctx.world().getBlockState(pos);
+            if (state.isAir()
+                    || !plausibleToBreak(calculation, pos)) continue;
+            java.util.Optional<Rotation> rotation =
+                    RotationUtils.reachable(ctx, pos);
+            if (rotation.isEmpty()) continue;
+            MovementHelper.switchToBestToolFor(
+                    ctx, state, new ToolSet(ctx.player()),
+                    Baritone.settings().preferSilkTouch.value);
+            baritone.getInputController().setBlockBreakTarget(pos);
+            baritone.getLookBehavior().updateTarget(rotation.get(), true);
+            baritone.getInputOverrideHandler().clearAllKeys();
+            baritone.getInputOverrideHandler()
+                    .setInputForceState(Input.CLICK_LEFT, true);
+            baritone.getInputController().tick();
+            return true;
+        }
+        return false;
+    }
+
+    private static BlockPos originSupport(ItemEntity entity) {
+        return entity.blockPosition().below();
     }
 
     private ItemEntity nearestDesiredDrop() {
@@ -243,13 +362,15 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     }
 
     private void prune() {
+        blacklistUntil.entrySet().removeIf(
+                entry -> entry.getValue() <= tickCount);
         CalculationContext calculation = new CalculationContext(baritone);
         int viewDistance = ctx.player().getServer().getPlayerList()
                 .getViewDistance();
         int playerChunkX = ctx.playerFeet().x >> 4;
         int playerChunkZ = ctx.playerFeet().z >> 4;
         knownOreLocations.removeIf(pos ->
-                blacklist.contains(pos)
+                blacklistUntil.containsKey(pos)
                         || Math.abs((pos.getX() >> 4) - playerChunkX)
                                 > viewDistance
                         || Math.abs((pos.getZ() >> 4) - playerChunkZ)
@@ -331,7 +452,28 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
 
     private int matchingInventoryCount() {
         return ctx.player().getInventory().getNonEquipmentItems().stream()
-                .filter(filter::has).mapToInt(ItemStack::getCount).sum();
+                .filter(stack -> filter.has(stack)
+                        || desiredDropItems.contains(stack.getItem()))
+                .mapToInt(ItemStack::getCount).sum();
+    }
+
+    private void primeDesiredDrops() {
+        BlockPos samplePos = ctx.playerFeet();
+        List<ItemStack> tools = new ArrayList<>(
+                ctx.player().getInventory().getNonEquipmentItems());
+        tools.add(ItemStack.EMPTY);
+        for (BlockOptionalMeta selector : filter.blocks()) {
+            Block block = selector.getBlock();
+            if (block.asItem() != net.minecraft.world.item.Items.AIR) {
+                desiredDropItems.add(block.asItem());
+            }
+            for (ItemStack tool : tools) {
+                Block.getDrops(block.defaultBlockState(), ctx.world(),
+                                samplePos, null, ctx.player(), tool)
+                        .forEach(drop ->
+                                desiredDropItems.add(drop.getItem()));
+            }
+        }
     }
 
     @Override public void mineByName(int quantity, String... blocks) {
@@ -357,6 +499,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         }
         baritone.cancelLegacyBlockTask();
         this.filter = requested;
+        primeDesiredDrops();
         ServerWorldCache.registerTrackedBlocks(
                 requested.blocks().stream()
                         .map(BlockOptionalMeta::getBlock).toList());
@@ -383,10 +526,16 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 && (desiredDropItems.contains(stack.getItem()) || filter.has(stack));
     }
 
+    public boolean isProtectedDesiredDrop(ItemEntity entity) {
+        if (!isDesiredMiningDrop(entity.getItem())) return false;
+        return anticipatedDrops.keySet().stream().anyMatch(origin ->
+                origin.distSqr(entity.blockPosition()) <= 64.0D);
+    }
+
     @Override public void onLostControl() {
         filter = null;
         knownOreLocations.clear();
-        blacklist.clear();
+        blacklistUntil.clear();
         anticipatedDrops.clear();
         ignoredDrops.clear();
         desiredDropItems.clear();
@@ -394,6 +543,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         collecting = null;
         collectionTicks = 0;
         tickCount = 0;
+        lastSoleFailedTarget = null;
+        soleTargetFailureRounds = 0;
         branchPoint = null;
         branchGoal = null;
         baritone.getInputOverrideHandler().clearAllKeys();

@@ -36,6 +36,8 @@ import baritone.process.BackfillProcess;
 import baritone.process.FarmProcess;
 import baritone.process.BuilderProcess;
 import baritone.process.ElytraProcess;
+import baritone.process.CollectItemProcess;
+import baritone.process.GiveAllProcess;
 import baritone.utils.pathing.Favoring;
 import baritone.cache.ServerWorldCache;
 import baritone.cache.WorldScanner;
@@ -78,6 +80,8 @@ public final class Baritone implements IBaritone {
     private final FarmProcess farmProcess;
     private final BuilderProcess builderProcess;
     private final ElytraProcess elytraProcess;
+    private final CollectItemProcess collectItemProcess;
+    private final GiveAllProcess giveAllProcess;
     private final WorldProvider worldProvider;
     private final PathingControlManager pathingControlManager;
     private final GameEventHandler gameEventHandler;
@@ -128,6 +132,8 @@ public final class Baritone implements IBaritone {
         this.farmProcess = new FarmProcess(this);
         this.builderProcess = new BuilderProcess(this);
         this.elytraProcess = new ElytraProcess(this);
+        this.collectItemProcess = new CollectItemProcess(this);
+        this.giveAllProcess = new GiveAllProcess(this);
         this.worldProvider = new WorldProvider(playerContext);
         this.gameEventHandler = new GameEventHandler(this);
         this.selectionManager = new SelectionManager(this);
@@ -146,6 +152,8 @@ public final class Baritone implements IBaritone {
         pathingControlManager.registerProcess(farmProcess);
         pathingControlManager.registerProcess(builderProcess);
         pathingControlManager.registerProcess(elytraProcess);
+        pathingControlManager.registerProcess(collectItemProcess);
+        pathingControlManager.registerProcess(giveAllProcess);
     }
 
     @Override
@@ -313,11 +321,22 @@ public final class Baritone implements IBaritone {
             else if (controlled == farmProcess) farmProcess.serverTick();
             else if (controlled == builderProcess) builderProcess.serverTick();
             else if (controlled == elytraProcess) elytraProcess.serverTick();
+            else if (controlled == collectItemProcess) collectItemProcess.serverTick();
+            else if (controlled == giveAllProcess) giveAllProcess.serverTick();
         });
         trashDiscardController.tick(
+                pathExecutor != null || activeGoal != null
+                        || mineProcess.isActive() || farmProcess.isActive()
+                        || collectItemProcess.isActive()
+                        || giveAllProcess.isActive(),
                 mineProcess.isActive() ? mineProcess.protectedDropOrigin()
                         : blockTask == null ? null : blockTask.protectedDropOrigin(),
                 mineProcess.isActive() ? mineProcess::isDesiredMiningDrop
+                        : farmProcess.isActive() ? farmProcess::isDesiredFarmDrop
+                        : collectItemProcess.isActive()
+                        ? collectItemProcess::isProtectedStack
+                        : giveAllProcess.isActive()
+                        ? giveAllProcess::isProtectedStack
                         : blockTask == null ? stack -> false : blockTask::isDesiredMiningDrop);
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);
@@ -430,8 +449,12 @@ public final class Baritone implements IBaritone {
         }
         BetterBlockPos start = pathingBehavior.pathStart();
         long multiplier = 1L << Math.min(2, consecutivePathFailures);
-        long primaryTimeout = settings().primaryTimeoutMS.value * multiplier;
-        long failureTimeout = settings().failureTimeoutMS.value * multiplier;
+        long primaryTimeout = (mineProcess.isActive()
+                ? settings().minePrimaryTimeoutMS.value
+                : settings().primaryTimeoutMS.value) * multiplier;
+        long failureTimeout = (mineProcess.isActive()
+                ? settings().mineFailureTimeoutMS.value
+                : settings().failureTimeoutMS.value) * multiplier;
         submitPathCalculation(start, goal, null, false,
                 primaryTimeout, failureTimeout);
     }
@@ -498,6 +521,15 @@ public final class Baritone implements IBaritone {
         return mineProcess;
     }
 
+    public boolean usesMiningCostModel() {
+        return mineProcess != null && mineProcess.isActive();
+    }
+
+    public boolean usesCollectItemCostModel() {
+        return collectItemProcess != null && collectItemProcess.isActive()
+                || giveAllProcess != null && giveAllProcess.isActive();
+    }
+
     public BackfillProcess getBackfillProcess() {
         return backfillProcess;
     }
@@ -512,6 +544,14 @@ public final class Baritone implements IBaritone {
 
     public ElytraProcess getElytraProcess() {
         return elytraProcess;
+    }
+
+    public CollectItemProcess getCollectItemProcess() {
+        return collectItemProcess;
+    }
+
+    public GiveAllProcess getGiveAllProcess() {
+        return giveAllProcess;
     }
 
     public void startElytra(BlockPos destination) {
@@ -709,10 +749,15 @@ public final class Baritone implements IBaritone {
                         pathExecutor.getPath().movements().size()));
         if (remaining < settings().planningTickLookahead.value) {
             BetterBlockPos start = pathExecutor.getPath().getDest();
+            long primaryTimeout = mineProcess.isActive()
+                    ? settings().minePrimaryTimeoutMS.value
+                    : settings().planAheadPrimaryTimeoutMS.value;
+            long failureTimeout = mineProcess.isActive()
+                    ? settings().mineFailureTimeoutMS.value
+                    : settings().planAheadFailureTimeoutMS.value;
             submitPathCalculation(start, activeGoal,
                     pathExecutor.getPath(), true,
-                    settings().planAheadPrimaryTimeoutMS.value,
-                    settings().planAheadFailureTimeoutMS.value);
+                    primaryTimeout, failureTimeout);
         }
     }
 
@@ -724,8 +769,11 @@ public final class Baritone implements IBaritone {
     }
 
     private boolean scheduleRecalculationBackoff() {
+        int retryLimit = mineProcess.isActive()
+                ? settings().minePathingFailureRetryCount.value
+                : settings().pathingFailureRetryCount.value;
         if (activeGoal == null || consecutivePathFailures
-                >= Math.max(1, settings().pathingFailureRetryCount.value)) {
+                >= Math.max(1, retryLimit)) {
             activeGoal = null;
             pathRecalcPending = false;
             deferredProcessRecalculation = null;
@@ -758,13 +806,13 @@ public final class Baritone implements IBaritone {
     }
 
     public boolean isTrashDrop(ItemEntity entity) {
-        if (mineProcess.isActive()) {
-            BlockPos protectedOrigin = mineProcess.protectedDropOrigin();
-            if (protectedOrigin != null
-                    && protectedOrigin.distSqr(entity.blockPosition()) <= 64.0D
-                    && mineProcess.isDesiredMiningDrop(entity.getItem())) {
-                return false;
-            }
+        if (mineProcess.isActive()
+                && mineProcess.isProtectedDesiredDrop(entity)) {
+            return false;
+        }
+        if (farmProcess.isActive()
+                && farmProcess.isDesiredFarmDrop(entity.getItem())) {
+            return false;
         }
         if (blockTask != null) {
             BlockPos protectedOrigin = blockTask.protectedDropOrigin();
