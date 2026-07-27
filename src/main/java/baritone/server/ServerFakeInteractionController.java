@@ -47,8 +47,17 @@ public final class ServerFakeInteractionController {
 
     public boolean canReach(BlockPos pos) {
         double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
-        return player.getEyePosition().distanceToSqr(pos.getCenter())
-                <= reach * reach;
+        Vec3 eye = player.getEyePosition();
+        double closestX = Math.max(pos.getX(),
+                Math.min(eye.x, pos.getX() + 1.0D));
+        double closestY = Math.max(pos.getY(),
+                Math.min(eye.y, pos.getY() + 1.0D));
+        double closestZ = Math.max(pos.getZ(),
+                Math.min(eye.z, pos.getZ() + 1.0D));
+        double dx = eye.x - closestX;
+        double dy = eye.y - closestY;
+        double dz = eye.z - closestZ;
+        return dx * dx + dy * dy + dz * dz <= reach * reach;
     }
 
     public void lookAt(BlockPos pos) {
@@ -250,7 +259,12 @@ public final class ServerFakeInteractionController {
 
     public boolean pickup(ItemEntity entity) {
         if (entity == null || !entity.isAlive()
-                || !canReach(entity.blockPosition())) return false;
+                || player.getEyePosition().distanceToSqr(
+                        entity.position())
+                        > RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
+                        * RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE) {
+            return false;
+        }
         lookAt(entity.blockPosition());
         entity.setPickUpDelay(0);
         entity.playerTouch(player);

@@ -58,6 +58,7 @@ public final class BuilderProcess implements IBuilderProcess {
     private int scanCursor;
     private int tickCount;
     private boolean missingInScan;
+    private int completedBuilds;
     private final Map<BlockPos, Integer> failedUntil = new HashMap<>();
 
     public BuilderProcess(Baritone baritone) {
@@ -115,6 +116,7 @@ public final class BuilderProcess implements IBuilderProcess {
         this.scanCursor = 0;
         this.tickCount = 0;
         this.missingInScan = false;
+        this.completedBuilds = 0;
         this.failedUntil.clear();
         configured.reset();
     }
@@ -133,7 +135,9 @@ public final class BuilderProcess implements IBuilderProcess {
             ScanResult scan = findNextIncorrect();
             if (scan == ScanResult.PENDING) return;
             if (scan == ScanResult.COMPLETE) {
-                onLostControl();
+                if (!repeatBuild()) {
+                    onLostControl();
+                }
                 return;
             }
         }
@@ -218,6 +222,27 @@ public final class BuilderProcess implements IBuilderProcess {
 
     private int effectiveLayerHeight() {
         return Math.max(1, Baritone.settings().layerHeight.value);
+    }
+
+    private boolean repeatBuild() {
+        Vec3i repeat = Baritone.settings().buildRepeat.value;
+        completedBuilds++;
+        int maximum = Baritone.settings().buildRepeatCount.value;
+        if (repeat.equals(Vec3i.ZERO)
+                || maximum != -1 && completedBuilds >= maximum) {
+            return false;
+        }
+        origin = origin.offset(repeat);
+        layer = Math.max(0, Baritone.settings().startAtLayer.value);
+        scanCursor = 0;
+        missingInScan = false;
+        target = null;
+        desired = null;
+        failedUntil.clear();
+        if (!Baritone.settings().buildRepeatSneaky.value) {
+            schematic.reset();
+        }
+        return true;
     }
 
     private int currentMinLayer() {
@@ -441,6 +466,7 @@ public final class BuilderProcess implements IBuilderProcess {
         schematic = null; target = null; desired = null; name = null;
         scanCursor = 0;
         missingInScan = false;
+        completedBuilds = 0;
         failedUntil.clear();
     }
     @Override public String displayName0() { return "Building " + name; }

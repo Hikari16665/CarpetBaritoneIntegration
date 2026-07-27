@@ -42,6 +42,7 @@ import baritone.process.ElytraProcess;
 import baritone.process.CollectItemProcess;
 import baritone.process.GiveAllProcess;
 import baritone.process.CleanProcess;
+import baritone.process.PauseProcess;
 import baritone.utils.pathing.Favoring;
 import baritone.cache.ServerWorldCache;
 import baritone.cache.WorldScanner;
@@ -61,6 +62,9 @@ import net.minecraft.world.entity.item.ItemEntity;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
@@ -89,6 +93,7 @@ public final class Baritone implements IBaritone {
     private final CollectItemProcess collectItemProcess;
     private final GiveAllProcess giveAllProcess;
     private final CleanProcess cleanProcess;
+    private final PauseProcess pauseProcess;
     private final WorldProvider worldProvider;
     private final PathingControlManager pathingControlManager;
     private final GameEventHandler gameEventHandler;
@@ -121,6 +126,7 @@ public final class Baritone implements IBaritone {
             Goal goal,
             BetterBlockPos start,
             boolean nextSegment,
+            Map<Long, Long> snapshotRevisions,
             PathCalculationResult result) {}
 
     public Baritone(IPlayerContext playerContext) {
@@ -146,6 +152,7 @@ public final class Baritone implements IBaritone {
         this.collectItemProcess = new CollectItemProcess(this);
         this.giveAllProcess = new GiveAllProcess(this);
         this.cleanProcess = new CleanProcess(this);
+        this.pauseProcess = new PauseProcess(this);
         this.worldProvider = new WorldProvider(playerContext);
         this.gameEventHandler = new GameEventHandler(this);
         this.selectionManager = new SelectionManager(this);
@@ -167,6 +174,7 @@ public final class Baritone implements IBaritone {
         pathingControlManager.registerProcess(collectItemProcess);
         pathingControlManager.registerProcess(giveAllProcess);
         pathingControlManager.registerProcess(cleanProcess);
+        pathingControlManager.registerProcess(pauseProcess);
     }
 
     @Override
@@ -590,6 +598,10 @@ public final class Baritone implements IBaritone {
         return cleanProcess;
     }
 
+    public PauseProcess getPauseProcess() {
+        return pauseProcess;
+    }
+
     public void setSelectionPos1(BlockPos pos) {
         selectionPos1 = BetterBlockPos.from(pos);
         rebuildCommandSelection();
@@ -698,7 +710,15 @@ public final class Baritone implements IBaritone {
                             startChunkX, startChunkZ);
             if (chunk != null) getWorldCache().captureExact(chunk);
         }
+        getWorldCache().warmExactSnapshots(
+                start,
+                Math.min(2, playerContext.server()
+                        .getPlayerList().getViewDistance()),
+                Math.max(0, settings()
+                        .pathingSnapshotWarmupChunkBudget.value));
         CalculationContext context = new CalculationContext(this, true, goal);
+        Map<Long, Long> snapshotRevisions =
+                getWorldCache().exactSnapshotRevisions();
         HybridPathFinder finder = new HybridPathFinder(
                 start, goal,
                 new Favoring(playerContext, previous, context),
@@ -715,7 +735,8 @@ public final class Baritone implements IBaritone {
                 PathCalculationResult result =
                         finder.calculate(primaryTimeout, failureTimeout);
                 pathCompletions.add(new PathCompletion(
-                        generation, goal, start, nextSegment, result));
+                        generation, goal, start, nextSegment,
+                        snapshotRevisions, result));
             });
             return true;
         } catch (RejectedExecutionException rejected) {
@@ -741,6 +762,21 @@ public final class Baritone implements IBaritone {
             pathingBehavior.setInProgress(null);
             calculationFuture = null;
             Optional<IPath> calculated = completion.result.getPath();
+            if (calculated.isPresent()
+                    && !pathSnapshotStillValid(
+                            calculated.get(),
+                            completion.snapshotRevisions)) {
+                if (completion.nextSegment) {
+                    nextPathExecutor = null;
+                    gameEventHandler.onPathEvent(
+                            PathEvent.DISCARD_NEXT);
+                } else {
+                    pathRecalcPending = activeGoal != null;
+                    nextRecalculationTick =
+                            playerContext.world().getGameTime() + 1L;
+                }
+                continue;
+            }
             if (completion.nextSegment) {
                 if (calculated.isPresent() && pathExecutor == null
                         && (calculated.get().positions().contains(
@@ -790,6 +826,24 @@ public final class Baritone implements IBaritone {
                 calcFailedLastTick = scheduleRecalculationBackoff();
             }
         }
+    }
+
+    private boolean pathSnapshotStillValid(
+            IPath path, Map<Long, Long> submittedRevisions) {
+        Set<Long> pathChunks = new HashSet<>();
+        for (BetterBlockPos pos : path.positions()) {
+            pathChunks.add(net.minecraft.world.level.ChunkPos.asLong(
+                    pos.x >> 4, pos.z >> 4));
+        }
+        ServerWorldCache cache = getWorldCache();
+        for (long key : pathChunks) {
+            long submitted = submittedRevisions.getOrDefault(
+                    key, Long.MIN_VALUE);
+            if (cache.exactSnapshotRevision(key) != submitted) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void planAheadAndSplice() {

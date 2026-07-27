@@ -25,11 +25,12 @@ public final class ServerPathingScheduler {
     private static final int PROCESSORS =
             Runtime.getRuntime().availableProcessors();
     private static final int WORKERS = Math.max(1,
-            Math.min(4, PROCESSORS - 2));
+            Math.min(2, Math.max(1, PROCESSORS / 4)));
     private static final int QUEUE_CAPACITY = 64;
     private static final AtomicInteger THREAD_IDS = new AtomicInteger();
     private static final LongAdder SUBMITTED = new LongAdder();
     private static final LongAdder COMPLETED = new LongAdder();
+    private static final LongAdder REJECTED = new LongAdder();
     private static final LongAdder TOTAL_NANOS = new LongAdder();
     private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(
             WORKERS,
@@ -47,16 +48,22 @@ public final class ServerPathingScheduler {
     private ServerPathingScheduler() {}
 
     public static Future<?> submit(Runnable calculation) {
-        SUBMITTED.increment();
-        return EXECUTOR.submit(() -> {
-            long started = System.nanoTime();
-            try {
-                calculation.run();
-            } finally {
-                TOTAL_NANOS.add(System.nanoTime() - started);
-                COMPLETED.increment();
-            }
-        });
+        try {
+            Future<?> future = EXECUTOR.submit(() -> {
+                long started = System.nanoTime();
+                try {
+                    calculation.run();
+                } finally {
+                    TOTAL_NANOS.add(System.nanoTime() - started);
+                    COMPLETED.increment();
+                }
+            });
+            SUBMITTED.increment();
+            return future;
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            REJECTED.increment();
+            throw rejected;
+        }
     }
 
     public static int activeCount() {
@@ -85,6 +92,10 @@ public final class ServerPathingScheduler {
 
     public static long completedCount() {
         return COMPLETED.sum();
+    }
+
+    public static long rejectedCount() {
+        return REJECTED.sum();
     }
 
     public static double averageCalculationMillis() {

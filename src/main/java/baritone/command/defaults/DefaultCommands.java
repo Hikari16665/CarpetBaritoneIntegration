@@ -22,6 +22,7 @@ public final class DefaultCommands {
                 new FarmCommand(baritone),
                 new ElytraCommand(baritone),
                 new GoalCommand(baritone),
+                new NavigationUtilityCommand(baritone),
                 new ExecutionControlCommands(baritone),
                 new ClickCommand(baritone),
                 new UtilityCommand(baritone)

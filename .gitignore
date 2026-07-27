@@ -4,3 +4,4 @@ logs/
 run/
 .gradle/
 .idea/
+migration-staging

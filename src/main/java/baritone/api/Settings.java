@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.HashMap;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.core.Vec3i;
 
 /**
  * Settings are rebuilt incrementally as server-side modules are ported.
@@ -33,6 +34,8 @@ public final class Settings {
     public final Setting<Boolean> remainWithExistingLookDirection = new Setting<>(true);
     public final Setting<Boolean> preferSilkTouch = new Setting<>(false);
     public final Setting<Integer> pathingMaxChunkBorderFetch = new Setting<>(50);
+    public final Setting<Integer> pathingSnapshotWarmupChunkBudget =
+            new Setting<>(4);
     public final Setting<Boolean> minimumImprovementRepropagation = new Setting<>(true);
     public final Setting<Integer> pathingMapDefaultSize = new Setting<>(1024);
     public final Setting<Float> pathingMapLoadFactor = new Setting<>(0.75F);
@@ -158,6 +161,12 @@ public final class Settings {
     public final Setting<Rotation> buildSchematicRotation = new Setting<>(Rotation.NONE);
     public final Setting<List<Block>> buildSkipBlocks = new Setting<>(new ArrayList<>());
     public final Setting<Boolean> mapArtMode = new Setting<>(false);
+    public final Setting<Vec3i> buildRepeat =
+            new Setting<>(new Vec3i(0, 0, 0));
+    public final Setting<Integer> buildRepeatCount =
+            new Setting<>(-1);
+    public final Setting<Boolean> buildRepeatSneaky =
+            new Setting<>(false);
     public final Setting<List<Item>> acceptableThrowawayItems = new Setting<>(new ArrayList<>(List.of(
             Blocks.DIRT.asItem(),
             Blocks.COBBLESTONE.asItem(),

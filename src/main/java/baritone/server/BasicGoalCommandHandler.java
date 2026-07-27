@@ -12,11 +12,16 @@ import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalXZ;
 import baritone.api.pathing.goals.GoalYLevel;
 import baritone.api.pathing.goals.GoalRunAway;
+import baritone.api.pathing.goals.GoalAxis;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.BlockOptionalMetaLookup;
 import baritone.api.command.argument.IArgConsumer;
 import baritone.api.schematic.FillSchematic;
+import baritone.api.pathing.goals.GoalStrictDirection;
+import baritone.api.cache.IWaypoint;
+import baritone.api.cache.Waypoint;
 import baritone.api.utils.PathCalculationResult;
+import baritone.cache.ServerWorldCache;
 import baritone.pathing.calc.AStarPathFinder;
 import baritone.pathing.movement.CalculationContext;
 import baritone.utils.pathing.Favoring;
@@ -151,6 +156,59 @@ public final class BasicGoalCommandHandler {
             case "build" -> startBuild(sender, fakePlayer, baritone, args);
             case "elytra", "fly" -> startElytra(sender, fakePlayer, baritone, args);
             case "runaway", "run_away" -> startRunAway(sender, fakePlayer, baritone, args);
+            case "goal" -> manageGoal(sender, fakePlayer, baritone, args);
+            case "path" -> startCurrentGoal(
+                    sender, fakePlayer, baritone, args);
+            case "proc" -> reply(fakePlayer, sender, status(baritone));
+            case "eta" -> reportEta(sender, fakePlayer, baritone, args);
+            case "version" -> reportVersion(sender, fakePlayer, args);
+            case "surface", "top" ->
+                    startSurface(sender, fakePlayer, baritone, args);
+            case "thisway", "forward" ->
+                    setThisWay(sender, fakePlayer, baritone, args);
+            case "axis", "highway" ->
+                    setAxisGoal(sender, fakePlayer, baritone, args);
+            case "tunnel" ->
+                    startTunnel(sender, fakePlayer, baritone, args);
+            case "sel", "selection", "s" ->
+                    manageSelection(sender, fakePlayer, baritone, args);
+            case "waypoints", "waypoint", "wp" ->
+                    manageWaypoints(sender, fakePlayer, baritone, args);
+            case "sethome" ->
+                    saveHome(sender, fakePlayer, baritone, args);
+            case "home" ->
+                    goHome(sender, fakePlayer, baritone, args);
+            case "blacklist" ->
+                    blacklistClosest(sender, fakePlayer, baritone, args);
+            case "find" ->
+                    findCachedBlocks(sender, fakePlayer, baritone, args);
+            case "pickup" ->
+                    startPickup(sender, fakePlayer, baritone, args);
+            case "reloadall" -> {
+                requireNoArguments(args, "reloadall");
+                baritone.getWorldCache().reloadAllFromDisk();
+                reply(fakePlayer, sender, "已重新加载世界缓存");
+            }
+            case "saveall" -> {
+                requireNoArguments(args, "saveall");
+                ServerWorldCache.saveAll();
+                reply(fakePlayer, sender, "已保存全部世界缓存");
+            }
+            case "gc" -> {
+                requireNoArguments(args, "gc");
+                System.gc();
+                reply(fakePlayer, sender, "已请求 Java 垃圾回收");
+            }
+            case "repack" -> {
+                String[] forwarded = new String[args.length + 1];
+                forwarded[0] = "cache";
+                forwarded[1] = "repack";
+                if (args.length > 1) {
+                    System.arraycopy(args, 1, forwarded, 2,
+                            args.length - 1);
+                }
+                manageCache(sender, fakePlayer, baritone, forwarded);
+            }
             case "avoid", "avoidance" -> setAvoidance(sender, fakePlayer, args);
             case "set", "setting", "settings" ->
                     manageSettings(sender, fakePlayer, baritone, args);
@@ -162,8 +220,33 @@ public final class BasicGoalCommandHandler {
                     sender, fakePlayer, baritone, args);
             case "cache" -> manageCache(sender, fakePlayer, baritone, args);
             case "stop", "cancel" -> {
+                baritone.getPauseProcess().setPaused(false);
                 baritone.cancelAll();
                 reply(fakePlayer, sender, "已停止当前 cbi 任务");
+            }
+            case "pause", "p", "paws" -> {
+                requireNoArguments(args, "pause");
+                if (baritone.getPauseProcess().isPaused()) {
+                    throw new IllegalArgumentException("任务已经暂停");
+                }
+                baritone.getPauseProcess().setPaused(true);
+                reply(fakePlayer, sender, "已暂停当前任务");
+            }
+            case "resume", "r", "unpause", "unpaws" -> {
+                requireNoArguments(args, "resume");
+                baritone.getBuilderProcess().resume();
+                if (!baritone.getPauseProcess().isPaused()) {
+                    throw new IllegalArgumentException("任务当前没有暂停");
+                }
+                baritone.getPauseProcess().setPaused(false);
+                reply(fakePlayer, sender, "已恢复当前任务");
+            }
+            case "paused" -> {
+                requireNoArguments(args, "paused");
+                reply(fakePlayer, sender,
+                        baritone.getPauseProcess().isPaused()
+                                ? "Baritone 已暂停"
+                                : "Baritone 未暂停");
             }
             case "status" -> reply(fakePlayer, sender, status(baritone));
             case "stats" -> reply(fakePlayer, sender, schedulerStats(baritone));
@@ -397,6 +480,398 @@ public final class BasicGoalCommandHandler {
         );
     }
 
+    private static void manageGoal(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length == 1) {
+            Goal goal = baritone.getCustomGoalProcess().getGoal();
+            if (goal == null) goal = baritone.getActiveGoal();
+            reply(fakePlayer, sender,
+                    goal == null ? "当前没有目标" : "当前目标: " + goal);
+            return;
+        }
+        if (args.length != 4) {
+            throw new IllegalArgumentException(
+                    "用法: goal [x y z]");
+        }
+        Goal goal = new GoalBlock(
+                coordinate(args[1], "x"),
+                coordinate(args[2], "y"),
+                coordinate(args[3], "z"));
+        baritone.cancelAll();
+        baritone.getCustomGoalProcess().setGoal(goal);
+        reply(fakePlayer, sender, "已设置目标: " + goal);
+    }
+
+    private static void startCurrentGoal(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: path");
+        }
+        Goal goal = baritone.getCustomGoalProcess().getGoal();
+        if (goal == null) {
+            throw new IllegalArgumentException(
+                    "请先使用 goal x y z 设置目标");
+        }
+        baritone.getCustomGoalProcess().path();
+        reply(fakePlayer, sender, "开始前往当前目标");
+    }
+
+    private static void reportEta(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: eta");
+        }
+        java.util.Optional<Double> ticks =
+                baritone.getPathingBehavior().estimatedTicksToGoal();
+        if (ticks.isEmpty()) {
+            reply(fakePlayer, sender, "当前没有可估算的执行路径");
+            return;
+        }
+        reply(fakePlayer, sender, String.format(
+                Locale.ROOT, "预计剩余 %.1f 秒",
+                ticks.get() / 20.0D));
+    }
+
+    private static void reportVersion(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: version");
+        }
+        String version = net.fabricmc.loader.api.FabricLoader
+                .getInstance().getModContainer(
+                        "carpetbaritoneintegration")
+                .map(container -> container.getMetadata()
+                        .getVersion().getFriendlyString())
+                .orElse("unknown");
+        reply(fakePlayer, sender,
+                "CarpetBaritoneIntegration " + version);
+    }
+
+    private static void startSurface(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: surface");
+        }
+        BlockPos feet = fakePlayer.blockPosition();
+        for (int y = Math.max(feet.getY() + 1,
+                fakePlayer.level().getSeaLevel());
+             y < fakePlayer.level().getMaxY(); y++) {
+            BlockPos solid = new BlockPos(feet.getX(), y, feet.getZ());
+            if (!fakePlayer.level().getBlockState(solid).isAir()
+                    && fakePlayer.level().getBlockState(
+                            solid.above()).isAir()
+                    && fakePlayer.level().getBlockState(
+                            solid.above(2)).isAir()) {
+                startGoal(sender, fakePlayer, baritone,
+                        new GoalBlock(solid.above()),
+                        "地表 " + solid.above().toShortString());
+                return;
+            }
+        }
+        throw new IllegalArgumentException("当前位置上方没有可用地表");
+    }
+
+    private static void setThisWay(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 2) {
+            throw new IllegalArgumentException(
+                    "用法: thisway <距离>");
+        }
+        int distance = positive(args[1], "距离");
+        double yaw = Math.toRadians(fakePlayer.getYHeadRot());
+        int x = fakePlayer.blockPosition().getX()
+                + (int) Math.round(-Math.sin(yaw) * distance);
+        int z = fakePlayer.blockPosition().getZ()
+                + (int) Math.round(Math.cos(yaw) * distance);
+        baritone.cancelAll();
+        baritone.getCustomGoalProcess().setGoal(new GoalXZ(x, z));
+        reply(fakePlayer, sender,
+                "已设置前方目标: " + x + " " + z);
+    }
+
+    private static void setAxisGoal(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: axis");
+        }
+        baritone.cancelAll();
+        GoalAxis goal = new GoalAxis();
+        baritone.getCustomGoalProcess().setGoal(goal);
+        reply(fakePlayer, sender, "已设置最近坐标轴目标");
+    }
+
+    private static void startTunnel(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length == 1) {
+            baritone.cancelAll();
+            GoalStrictDirection goal = new GoalStrictDirection(
+                    BetterBlockPos.from(fakePlayer.blockPosition()),
+                    fakePlayer.getDirection());
+            baritone.getCustomGoalProcess().setGoal(goal);
+            baritone.getCustomGoalProcess().path();
+            reply(fakePlayer, sender, "开始沿当前方向持续开掘隧道");
+            return;
+        }
+        if (args.length != 4) {
+            throw new IllegalArgumentException(
+                    "用法: tunnel [高度 宽度 深度]");
+        }
+        int height = positive(args[1], "高度");
+        int width = positive(args[2], "宽度");
+        int depth = positive(args[3], "深度");
+        if (height < 2) {
+            throw new IllegalArgumentException("隧道高度至少为 2");
+        }
+        BlockPos feet = fakePlayer.blockPosition();
+        net.minecraft.core.Direction facing = fakePlayer.getDirection();
+        int left = (width - 1) / 2;
+        int right = width - 1 - left;
+        BlockPos corner1;
+        BlockPos corner2;
+        switch (facing) {
+            case EAST -> {
+                corner1 = feet.offset(0, 0, -left);
+                corner2 = feet.offset(depth, height - 1, right);
+            }
+            case WEST -> {
+                corner1 = feet.offset(0, 0, right);
+                corner2 = feet.offset(-depth, height - 1, -left);
+            }
+            case NORTH -> {
+                corner1 = feet.offset(-left, 0, 0);
+                corner2 = feet.offset(right, height - 1, -depth);
+            }
+            case SOUTH -> {
+                corner1 = feet.offset(right, 0, 0);
+                corner2 = feet.offset(-left, height - 1, depth);
+            }
+            default -> throw new IllegalStateException(
+                    "无效水平朝向 " + facing);
+        }
+        baritone.cancelAll();
+        baritone.getBuilderProcess().clearArea(corner1, corner2);
+        reply(fakePlayer, sender, "开始开掘 "
+                + height + "×" + width + "×" + depth + " 隧道");
+    }
+
+    private static void manageSelection(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "用法: sel <clear|fill|cleararea|expand|contract|shift>");
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("clear")) {
+            baritone.getSelectionManager().removeAllSelections();
+            reply(fakePlayer, sender, "已清除全部选区");
+            return;
+        }
+        baritone.api.selection.ISelection selection =
+                baritone.getSelectionManager().getOnlySelection();
+        if (selection == null) {
+            throw new IllegalArgumentException(
+                    "当前操作需要且仅允许一个完整选区");
+        }
+        if (action.equals("fill") || action.equals("set")
+                || action.equals("cleararea")) {
+            if (action.equals("cleararea") && args.length != 2
+                    || !action.equals("cleararea") && args.length != 3) {
+                throw new IllegalArgumentException(
+                        "用法: sel fill <block_id> 或 sel cleararea");
+            }
+            Block block = action.equals("cleararea")
+                    ? Blocks.AIR : block(args[2]);
+            baritone.cancelAll();
+            baritone.getBuilderProcess().build(
+                    action,
+                    new FillSchematic(
+                            selection.size().getX(),
+                            selection.size().getY(),
+                            selection.size().getZ(),
+                            block.defaultBlockState()),
+                    selection.min());
+            reply(fakePlayer, sender,
+                    "开始执行选区 " + action);
+            return;
+        }
+        if (action.equals("expand") || action.equals("contract")
+                || action.equals("shift")) {
+            if (args.length != 4) {
+                throw new IllegalArgumentException(
+                        "用法: sel " + action + " <方向> <格数>");
+            }
+            net.minecraft.core.Direction direction =
+                    net.minecraft.core.Direction.byName(
+                            args[2].toLowerCase(Locale.ROOT));
+            if (direction == null) {
+                throw new IllegalArgumentException(
+                        "无效方向: " + args[2]);
+            }
+            int blocks = positive(args[3], "格数");
+            if (action.equals("expand")) {
+                baritone.getSelectionManager().expand(
+                        selection, direction, blocks);
+            } else if (action.equals("contract")) {
+                baritone.getSelectionManager().contract(
+                        selection, direction, blocks);
+            } else {
+                baritone.getSelectionManager().shift(
+                        selection, direction, blocks);
+            }
+            reply(fakePlayer, sender,
+                    "已执行选区 " + action);
+            return;
+        }
+        throw new IllegalArgumentException(
+                "未知选区操作: " + action);
+    }
+
+    private static void requireNoArguments(
+            String[] args, String command) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException(
+                    "用法: " + command);
+        }
+    }
+
+    private static void manageWaypoints(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        var waypoints = baritone.getWorldProvider()
+                .getCurrentWorld().getWaypoints();
+        String action = args.length == 1
+                ? "list" : args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("list")) {
+            if (args.length > 3) {
+                throw new IllegalArgumentException(
+                        "用法: waypoints list [类型]");
+            }
+            IWaypoint.Tag tag = args.length == 3
+                    ? waypointTag(args[2]) : null;
+            java.util.Collection<IWaypoint> values = tag == null
+                    ? waypoints.getAllWaypoints()
+                    : waypoints.getByTag(tag);
+            if (values.isEmpty()) {
+                reply(fakePlayer, sender, "没有已保存的 waypoint");
+                return;
+            }
+            values.stream()
+                    .sorted(Comparator.comparingLong(
+                            IWaypoint::getCreationTimestamp).reversed())
+                    .limit(20)
+                    .forEach(waypoint -> reply(fakePlayer, sender,
+                            waypoint.getTag().getName() + " "
+                                    + waypoint.getName() + " @ "
+                                    + waypoint.getLocation()
+                                            .toShortString()));
+            return;
+        }
+        if (action.equals("save")) {
+            if (args.length != 4) {
+                throw new IllegalArgumentException(
+                        "用法: waypoints save <类型> <名称>");
+            }
+            IWaypoint.Tag tag = waypointTag(args[2]);
+            Waypoint waypoint = new Waypoint(
+                    args[3], tag,
+                    BetterBlockPos.from(fakePlayer.blockPosition()));
+            waypoints.addWaypoint(waypoint);
+            reply(fakePlayer, sender,
+                    "已保存 waypoint: " + tag.getName()
+                            + " " + args[3]);
+            return;
+        }
+        if (action.equals("delete") || action.equals("remove")) {
+            if (args.length != 4) {
+                throw new IllegalArgumentException(
+                        "用法: waypoints delete <类型> <名称>");
+            }
+            IWaypoint.Tag tag = waypointTag(args[2]);
+            IWaypoint selected = waypoints.getByTag(tag).stream()
+                    .filter(waypoint -> waypoint.getName()
+                            .equalsIgnoreCase(args[3]))
+                    .max(Comparator.comparingLong(
+                            IWaypoint::getCreationTimestamp))
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "找不到 waypoint: " + args[3]));
+            waypoints.removeWaypoint(selected);
+            reply(fakePlayer, sender,
+                    "已删除 waypoint: " + args[3]);
+            return;
+        }
+        if (action.equals("goto")) {
+            if (args.length < 3 || args.length > 4) {
+                throw new IllegalArgumentException(
+                        "用法: waypoints goto <类型> [名称]");
+            }
+            IWaypoint.Tag tag = waypointTag(args[2]);
+            IWaypoint selected = args.length == 3
+                    ? waypoints.getMostRecentByTag(tag)
+                    : waypoints.getByTag(tag).stream()
+                            .filter(waypoint -> waypoint.getName()
+                                    .equalsIgnoreCase(args[3]))
+                            .max(Comparator.comparingLong(
+                                    IWaypoint::getCreationTimestamp))
+                            .orElse(null);
+            if (selected == null) {
+                throw new IllegalArgumentException(
+                        "找不到对应 waypoint");
+            }
+            startGoal(sender, fakePlayer, baritone,
+                    new GoalBlock(selected.getLocation()),
+                    selected.getTag().getName() + " "
+                            + selected.getName());
+            return;
+        }
+        throw new IllegalArgumentException(
+                "用法: waypoints <list|save|delete|goto>");
+    }
+
+    private static void saveHome(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        requireNoArguments(args, "sethome");
+        var waypoints = baritone.getWorldProvider()
+                .getCurrentWorld().getWaypoints();
+        waypoints.addWaypoint(new Waypoint(
+                "home", IWaypoint.Tag.HOME,
+                BetterBlockPos.from(fakePlayer.blockPosition())));
+        reply(fakePlayer, sender, "已保存 home waypoint");
+    }
+
+    private static void goHome(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        requireNoArguments(args, "home");
+        IWaypoint waypoint = baritone.getWorldProvider()
+                .getCurrentWorld().getWaypoints()
+                .getMostRecentByTag(IWaypoint.Tag.HOME);
+        if (waypoint == null) {
+            throw new IllegalArgumentException(
+                    "尚未设置 home waypoint");
+        }
+        startGoal(sender, fakePlayer, baritone,
+                new GoalBlock(waypoint.getLocation()), "home");
+    }
+
+    private static IWaypoint.Tag waypointTag(String value) {
+        IWaypoint.Tag tag = IWaypoint.Tag.getByName(value);
+        if (tag == null) {
+            throw new IllegalArgumentException(
+                    "无效 waypoint 类型: " + value);
+        }
+        return tag;
+    }
+
     private static void startFollow(
             ServerPlayer sender, ServerPlayer fakePlayer, Baritone baritone, String[] args
     ) {
@@ -580,6 +1055,72 @@ public final class BasicGoalCommandHandler {
             default -> throw new IllegalArgumentException(
                     "用法: cbi cache <status|repack [半径]|save|reload>");
         }
+    }
+
+    private static void blacklistClosest(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        requireNoArguments(args, "blacklist");
+        if (!baritone.getGetToBlockProcess().isActive()) {
+            throw new IllegalArgumentException(
+                    "GetToBlockProcess 当前没有运行");
+        }
+        if (!baritone.getGetToBlockProcess().blacklistClosest()) {
+            throw new IllegalArgumentException(
+                    "没有已知目标可加入黑名单");
+        }
+        reply(fakePlayer, sender, "已将最近的目标方块加入黑名单");
+    }
+
+    private static void findCachedBlocks(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "用法: find <方块> [方块...]");
+        }
+        BetterBlockPos origin = BetterBlockPos.from(fakePlayer.blockPosition());
+        List<BlockPos> found = new ArrayList<>();
+        for (int index = 1; index < args.length; index++) {
+            Block target = block(args[index]);
+            ServerWorldCache.registerTrackedBlocks(List.of(target));
+            found.addAll(baritone.getWorldCache().getLocationsOf(
+                    BuiltInRegistries.BLOCK.getKey(target).toString(),
+                    64, origin.x, origin.z, 16));
+        }
+        found.stream()
+                .distinct()
+                .sorted(Comparator.comparingDouble(origin::distSqr))
+                .limit(64)
+                .forEach(pos -> reply(fakePlayer, sender,
+                        pos.getX() + " " + pos.getY() + " " + pos.getZ()));
+        if (found.isEmpty()) {
+            reply(fakePlayer, sender,
+                    "缓存中没有已知位置；新加入跟踪的方块会从后续区块扫描开始记录");
+        }
+    }
+
+    private static void startPickup(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length == 1) {
+            baritone.getFollowProcess().pickup(stack -> true);
+            reply(fakePlayer, sender, "开始拾取所有掉落物");
+            return;
+        }
+        java.util.Set<Item> targets = new java.util.HashSet<>();
+        for (int index = 1; index < args.length; index++) {
+            targets.add(item(args[index]));
+        }
+        baritone.getFollowProcess().pickup(
+                stack -> targets.contains(stack.getItem()));
+        reply(fakePlayer, sender, "开始拾取: "
+                + targets.stream()
+                .map(BuiltInRegistries.ITEM::getKey)
+                .map(Object::toString)
+                .sorted()
+                .reduce((left, right) -> left + ", " + right)
+                .orElse(""));
     }
 
     private static void manageSettings(
@@ -796,6 +1337,18 @@ public final class BasicGoalCommandHandler {
             if (defaultValue instanceof Float) return Float.parseFloat(text);
             if (defaultValue instanceof Double) return Double.parseDouble(text);
             if (defaultValue instanceof String) return text;
+            if (defaultValue instanceof net.minecraft.core.Vec3i) {
+                String[] components = text.split("[,:]");
+                if (components.length != 3) {
+                    throw new IllegalArgumentException(
+                            field.getName()
+                                    + " 必须使用 x,y,z 格式");
+                }
+                return new net.minecraft.core.Vec3i(
+                        Integer.parseInt(components[0]),
+                        Integer.parseInt(components[1]),
+                        Integer.parseInt(components[2]));
+            }
             if (defaultValue instanceof Enum<?> value) {
                 return parseEnum(value.getDeclaringClass(), text);
             }
@@ -860,6 +1413,10 @@ public final class BasicGoalCommandHandler {
             if (list.isEmpty()) return "none";
             return list.stream().map(BasicGoalCommandHandler::settingValue)
                     .collect(java.util.stream.Collectors.joining(","));
+        }
+        if (value instanceof net.minecraft.core.Vec3i vector) {
+            return vector.getX() + "," + vector.getY()
+                    + "," + vector.getZ();
         }
         return String.valueOf(value);
     }

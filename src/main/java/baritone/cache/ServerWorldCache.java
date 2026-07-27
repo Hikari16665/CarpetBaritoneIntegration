@@ -188,6 +188,42 @@ public final class ServerWorldCache implements ICachedWorld {
         return Math.floorMod(cursor, total);
     }
 
+    /**
+     * Copies only a small nearest-first neighborhood before an asynchronous
+     * search starts. Existing immutable snapshots are free and do not consume
+     * the budget.
+     */
+    public synchronized int warmExactSnapshots(
+            BlockPos center, int radius, int budget) {
+        if (budget <= 0 || radius < 0) return 0;
+        int centerChunkX = center.getX() >> 4;
+        int centerChunkZ = center.getZ() >> 4;
+        int copied = 0;
+        outer:
+        for (int distance = 0; distance <= radius; distance++) {
+            for (int dx = -distance; dx <= distance; dx++) {
+                int dzAbs = distance - Math.abs(dx);
+                for (int sign : new int[]{-1, 1}) {
+                    int dz = dzAbs * sign;
+                    int chunkX = centerChunkX + dx;
+                    int chunkZ = centerChunkZ + dz;
+                    long key = ChunkPos.asLong(chunkX, chunkZ);
+                    if (!exactSnapshots.containsKey(key)) {
+                        LevelChunk chunk = world.getChunkSource()
+                                .getChunkNow(chunkX, chunkZ);
+                        if (chunk != null && !chunk.isEmpty()) {
+                            captureExact(chunk);
+                            copied++;
+                        }
+                    }
+                    if (copied >= budget) break outer;
+                    if (dzAbs == 0) break;
+                }
+            }
+        }
+        return copied;
+    }
+
     private long pollPendingCapture() {
         java.util.Iterator<Long> iterator = pendingCaptures.iterator();
         if (!iterator.hasNext()) return Long.MIN_VALUE;
@@ -198,12 +234,17 @@ public final class ServerWorldCache implements ICachedWorld {
 
     public synchronized void capture(LevelChunk chunk) {
         long key = chunk.getPos().toLong();
-        ExactChunkSnapshot exact = ExactChunkSnapshot.copyOf(
-                chunk, ++snapshotRevision);
-        exactSnapshots.put(key, exact);
+        ExactChunkSnapshot exact = exactSnapshots.get(key);
+        if (exact == null) {
+            exact = ExactChunkSnapshot.copyOf(
+                    chunk, ++snapshotRevision);
+            exactSnapshots.put(key, exact);
+        }
         Set<Block> tracked = trackedBlocks();
         observedChunks.put(key, world.getGameTime());
-        PACKER.execute(() -> packAndPublish(key, exact, tracked));
+        ExactChunkSnapshot snapshotToPack = exact;
+        PACKER.execute(() ->
+                packAndPublish(key, snapshotToPack, tracked));
     }
 
     /**
@@ -213,8 +254,14 @@ public final class ServerWorldCache implements ICachedWorld {
     public synchronized void updateBlock(
             BlockPos pos, BlockState state, LevelChunk chunk) {
         long key = chunk.getPos().toLong();
-        long revision = ++snapshotRevision;
         ExactChunkSnapshot previous = exactSnapshots.get(key);
+        if (previous != null
+                && previous.getBlockState(
+                        pos.getX(), pos.getY(), pos.getZ())
+                        .equals(state)) {
+            return;
+        }
+        long revision = ++snapshotRevision;
         ExactChunkSnapshot updated = previous == null
                 ? ExactChunkSnapshot.copyOf(chunk, revision)
                 : previous.withBlock(pos, state, revision);
@@ -427,6 +474,18 @@ public final class ServerWorldCache implements ICachedWorld {
         return Map.copyOf(exactSnapshots);
     }
 
+    public synchronized Map<Long, Long> exactSnapshotRevisions() {
+        Map<Long, Long> revisions = new HashMap<>();
+        exactSnapshots.forEach((key, snapshot) ->
+                revisions.put(key, snapshot.revision()));
+        return Map.copyOf(revisions);
+    }
+
+    public synchronized long exactSnapshotRevision(long chunkKey) {
+        ExactChunkSnapshot snapshot = exactSnapshots.get(chunkKey);
+        return snapshot == null ? Long.MIN_VALUE : snapshot.revision();
+    }
+
     public synchronized Map<Long, CachedChunk> compactSnapshotView() {
         removeExpired();
         return Map.copyOf(snapshots);
@@ -438,8 +497,12 @@ public final class ServerWorldCache implements ICachedWorld {
      * starting chunk.
      */
     public synchronized void captureExact(LevelChunk chunk) {
-        exactSnapshots.put(chunk.getPos().toLong(),
-                ExactChunkSnapshot.copyOf(chunk, ++snapshotRevision));
+        long key = chunk.getPos().toLong();
+        if (!exactSnapshots.containsKey(key)) {
+            exactSnapshots.put(key,
+                    ExactChunkSnapshot.copyOf(
+                            chunk, ++snapshotRevision));
+        }
     }
 
     public synchronized boolean hasExactSnapshot(int chunkX, int chunkZ) {
