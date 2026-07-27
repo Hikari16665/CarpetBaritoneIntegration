@@ -88,4 +88,9 @@ public final class FollowProcess implements IFollowProcess {
     }
     @Override public List<Entity> following() { return cache; }
     @Override public Predicate<Entity> currentFilter() { return filter; }
+
+    /** Ordinary follow should preserve every carried/collected stack. */
+    public boolean suppressesTrashDiscard() {
+        return filter != null && !into;
+    }
 }

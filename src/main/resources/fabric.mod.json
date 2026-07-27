@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "CarpetBaritoneIntegration",
   "description": "Pure-server Baritone pathing integration for Carpet fake players.",
-  "authors": ["CarpetBaritoneIntegration contributors", "Baritone contributors"],
+  "authors": ["HikariAwaken", "Baritone contributors"],
   "contact": {},
   "license": "LGPL-3.0-or-later",
   "icon": "assets/carpetbaritoneintegration/icon.png",

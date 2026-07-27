@@ -14,6 +14,7 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
     private Goal goal;
     private Goal mostRecentGoal;
     private State state = State.NONE;
+    private boolean suppressTrashDiscard;
 
     public CustomGoalProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -33,6 +34,16 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
     @Override
     public void path() {
         state = State.PATH_REQUESTED;
+    }
+
+    public void setGoalAndPath(Goal goal, boolean suppressTrashDiscard) {
+        this.suppressTrashDiscard = suppressTrashDiscard;
+        setGoal(goal);
+        path();
+    }
+
+    public boolean suppressesTrashDiscard() {
+        return isActive() && suppressTrashDiscard;
     }
 
     public void serverTick() {
@@ -86,7 +97,11 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
     @Override public Goal mostRecentGoal() { return mostRecentGoal; }
     @Override public boolean isActive() { return state != State.NONE; }
     @Override public boolean isTemporary() { return false; }
-    @Override public void onLostControl() { state = State.NONE; goal = null; }
+    @Override public void onLostControl() {
+        state = State.NONE;
+        goal = null;
+        suppressTrashDiscard = false;
+    }
     @Override public String displayName0() { return "Custom Goal " + goal; }
 
     private enum State {

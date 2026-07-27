@@ -21,6 +21,12 @@ import baritone.server.ServerBaritoneProvider;
 import net.minecraft.world.level.ChunkPos;
 import java.util.List;
 import me.nuoyuan.carpetbaritoneintegration.network.PathNetwork;
+import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsRequestPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.SettingOptions;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import carpet.patches.EntityPlayerMPFake;
+import java.util.LinkedHashSet;
 
 public class Carpetbaritoneintegration implements ModInitializer {
     public static final ServerBaritoneRegistry BARITONES = new ServerBaritoneRegistry();
@@ -28,6 +34,63 @@ public class Carpetbaritoneintegration implements ModInitializer {
     @Override
     public void onInitialize() {
         PathNetwork.registerCommon();
+        ServerPlayNetworking.registerGlobalReceiver(
+                ControlOptionsRequestPayload.TYPE, (payload, context) ->
+                        context.server().execute(() -> {
+                            LinkedHashSet<String> fakeNames =
+                                    new LinkedHashSet<>();
+                            context.server().getPlayerList().getPlayers()
+                                    .stream()
+                                    .filter(EntityPlayerMPFake.class::isInstance)
+                                    .map(player -> player.getGameProfile()
+                                            .getName())
+                                    .forEach(fakeNames::add);
+                            context.server().getAllLevels().forEach(level ->
+                                    level.players().stream()
+                                            .filter(EntityPlayerMPFake.class
+                                                    ::isInstance)
+                                            .map(player -> player
+                                                    .getGameProfile()
+                                                    .getName())
+                                            .forEach(fakeNames::add));
+                            BARITONES.snapshot().stream()
+                                    .map(instance -> instance
+                                            .getPlayerContext().player())
+                                    .filter(EntityPlayerMPFake.class::isInstance)
+                                    .map(player -> player.getGameProfile()
+                                            .getName())
+                                    .forEach(fakeNames::add);
+                            List<String> fakePlayers = fakeNames.stream()
+                                    .sorted().toList();
+                            List<String> onlinePlayers = context.server()
+                                    .getPlayerList().getPlayers().stream()
+                                    .map(player -> player.getGameProfile()
+                                            .getName())
+                                    .sorted().toList();
+                            List<ControlOptionsPayload.WaypointOption>
+                                    waypoints = BARITONES.snapshot().stream()
+                                    .flatMap(instance -> instance
+                                            .getWorldProvider()
+                                            .getCurrentWorld().getWaypoints()
+                                            .getAllWaypoints().stream()
+                                            .map(waypoint -> new
+                                                    ControlOptionsPayload
+                                                            .WaypointOption(
+                                                    instance.getPlayerContext()
+                                                            .player()
+                                                            .getScoreboardName(),
+                                                    waypoint.getName(),
+                                                    waypoint.getTag().getName(),
+                                                    waypoint.getLocation().x,
+                                                    waypoint.getLocation().y,
+                                                    waypoint.getLocation().z)))
+                                    .toList();
+                            ServerPlayNetworking.send(context.player(),
+                                    new ControlOptionsPayload(
+                                            fakePlayers, onlinePlayers,
+                                            SettingOptions.snapshot(),
+                                            waypoints));
+                        }));
         BaritoneAPI.setProvider(new ServerBaritoneProvider(BARITONES));
         ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> BARITONES.clear());

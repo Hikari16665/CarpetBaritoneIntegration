@@ -13,6 +13,7 @@ import baritone.api.process.PathingCommandType;
 import baritone.api.utils.BlockOptionalMeta;
 import baritone.api.utils.BlockOptionalMetaLookup;
 import baritone.cache.ServerWorldCache;
+import baritone.cache.WorldScanner;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
@@ -153,12 +154,20 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
     private void scanWorld() {
         BlockPos origin = baritone.getPlayerContext().playerFeet();
         List<BlockPos> found = new ArrayList<>();
+        int radius = baritone.getPlayerContext().server().getPlayerList()
+                .getViewDistance();
+        // Do not wait for asynchronous cache packing before the first target
+        // can be approached. Read a bounded number of currently loaded chunk
+        // palettes, then merge the durable cache as upstream does.
+        found.addAll(WorldScanner.INSTANCE.scanChunkRadius(
+                baritone.getPlayerContext(),
+                new BlockOptionalMetaLookup(gettingTo),
+                64, -1, radius));
         // Matches upstream GetToBlockProcess: durable points of interest found
         // in previously observed chunks supplement the live-world scan.
         found.addAll(baritone.getWorldCache().locationsOfNear(
                 gettingTo.getBlock(), origin.getX(), origin.getZ(),
-                baritone.getPlayerContext().server().getPlayerList()
-                        .getViewDistance(),
+                radius,
                 Math.max(128,
                         Baritone.settings().maxCachedWorldScanCount.value)));
         found = new ArrayList<>(new java.util.LinkedHashSet<>(found));

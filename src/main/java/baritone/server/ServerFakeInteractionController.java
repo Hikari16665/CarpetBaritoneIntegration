@@ -80,9 +80,25 @@ public final class ServerFakeInteractionController {
     }
 
     public boolean breakBlock(BlockPos pos) {
+        return breakBlock(pos, true);
+    }
+
+    /**
+     * Used by clean after its standing node has already passed a world-ray
+     * visibility check. Reach and timed mining still apply.
+     */
+    public boolean breakBlockTheoreticallyReachable(BlockPos pos) {
+        return breakBlock(pos, false);
+    }
+
+    private boolean breakBlock(BlockPos pos, boolean requireCurrentRay) {
         long gameTime = player.level().getGameTime();
         lastBreakRequestTick = gameTime;
-        if (!canBreakFromHere(pos)) {
+        if (!canReach(pos)
+                || requireCurrentRay && !canBreakFromHere(pos)) {
+            diagnosticBreak(pos, "rejected reach=" + canReach(pos)
+                    + " requireRay=" + requireCurrentRay
+                    + " rayHit=" + rayHitPosition(pos));
             if (pos.equals(activeBreakTarget)) resetBreakProgress();
             return false;
         }
@@ -92,7 +108,8 @@ public final class ServerFakeInteractionController {
             return true;
         }
         if (gameTime < nextBreakAllowedTick) return false;
-        if (!pos.equals(activeBreakTarget)) {
+        boolean startedBreaking = !pos.equals(activeBreakTarget);
+        if (startedBreaking) {
             resetBreakProgress();
             activeBreakTarget = pos.immutable();
         }
@@ -100,6 +117,9 @@ public final class ServerFakeInteractionController {
         MovementHelper.switchToBestToolFor(
                 baritone.getPlayerContext(), state);
         lookAt(pos);
+        if (startedBreaking || gameTime % 6L == 0L) {
+            player.swing(InteractionHand.MAIN_HAND, true);
+        }
         if (player.getAbilities().instabuild) {
             return finishBreak(pos, gameTime);
         }
@@ -108,9 +128,28 @@ public final class ServerFakeInteractionController {
         double increment = state.getDestroyProgress(
                 player, player.level(), pos);
         if (!(increment > 0D) || !Double.isFinite(increment)) {
+            float hardness = state.getDestroySpeed(player.level(), pos);
+            if (hardness == 0.0F) {
+                // Plants and other zero-hardness blocks are valid
+                // instantaneous breaks. getDestroyProgress returns zero for
+                // them, which must not be confused with an unbreakable block.
+                player.level().destroyBlockProgress(
+                        player.getId(), pos, 9);
+                diagnosticBreak(pos, "instant zero-hardness state="
+                        + state + " held=" + player.getMainHandItem());
+                return finishBreak(pos, gameTime);
+            }
+            diagnosticBreak(pos, "zero-progress state=" + state
+                    + " hardness=" + hardness
+                    + " held=" + player.getMainHandItem());
             return false;
         }
         breakProgress += increment;
+        diagnosticBreak(pos, "progress="
+                + String.format(java.util.Locale.ROOT, "%.3f", breakProgress)
+                + " increment="
+                + String.format(java.util.Locale.ROOT, "%.5f", increment)
+                + " held=" + player.getMainHandItem());
         player.level().destroyBlockProgress(
                 player.getId(), pos,
                 Math.min(9, Math.max(0,
@@ -122,13 +161,57 @@ public final class ServerFakeInteractionController {
     /** Fake interaction removes crosshair alignment, not solid occlusion. */
     public boolean canBreakFromHere(BlockPos pos) {
         if (!canReach(pos)) return false;
+        return findVisibleBreakPoint(pos) != null;
+    }
+
+    private Vec3 findVisibleBreakPoint(BlockPos pos) {
+        Vec3 eye = player.getEyePosition();
+        Vec3[] samples = {
+                pos.getCenter(),
+                pos.getCenter().add(0.499D, 0D, 0D),
+                pos.getCenter().add(-0.499D, 0D, 0D),
+                pos.getCenter().add(0D, 0.499D, 0D),
+                pos.getCenter().add(0D, -0.499D, 0D),
+                pos.getCenter().add(0D, 0D, 0.499D),
+                pos.getCenter().add(0D, 0D, -0.499D)
+        };
+        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        for (Vec3 sample : samples) {
+            if (eye.distanceToSqr(sample) > reach * reach) continue;
+            HitResult hit = player.level().clip(new ClipContext(
+                    eye, sample, ClipContext.Block.OUTLINE,
+                    ClipContext.Fluid.NONE, player));
+            // Blocks with a very small or empty outline (for example short
+            // grass) may produce MISS even though the segment reached the
+            // requested sample without crossing an occluding block.
+            if (hit.getType() == HitResult.Type.MISS) {
+                return sample;
+            }
+            if (hit instanceof BlockHitResult blockHit
+                    && hit.getType() == HitResult.Type.BLOCK
+                    && blockHit.getBlockPos().equals(pos)) {
+                return sample;
+            }
+        }
+        return null;
+    }
+
+    private BlockPos rayHitPosition(BlockPos pos) {
         HitResult hit = player.level().clip(new ClipContext(
                 player.getEyePosition(), pos.getCenter(),
                 ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE,
                 player));
         return hit instanceof BlockHitResult blockHit
-                && hit.getType() == HitResult.Type.BLOCK
-                && blockHit.getBlockPos().equals(pos);
+                ? blockHit.getBlockPos() : null;
+    }
+
+    private void diagnosticBreak(BlockPos pos, String detail) {
+        if (Baritone.settings().diagnosticLogging.value
+                && player.level().getGameTime() % 20L == 0L) {
+            System.out.println("[CBI-DIAG] break player="
+                    + player.getScoreboardName() + " target=" + pos
+                    + " feet=" + player.blockPosition() + " " + detail);
+        }
     }
 
     public void serverTick() {
@@ -177,6 +260,7 @@ public final class ServerFakeInteractionController {
         if (!current.canBeReplaced()) return false;
         if (useSelectedAt(target)
                 && !player.level().getBlockState(target).canBeReplaced()) {
+            baritone.getCleanProcess().recordPlacedSupport(target);
             return true;
         }
         return placeFullBlockDirect(target, blockItem, stack);
@@ -202,6 +286,7 @@ public final class ServerFakeInteractionController {
         if (!player.level().setBlockAndUpdate(target, placed)) {
             return false;
         }
+        baritone.getCleanProcess().recordPlacedSupport(target);
         lookAt(target);
         if (!player.getAbilities().instabuild) stack.shrink(1);
         player.inventoryMenu.broadcastChanges();
@@ -344,6 +429,7 @@ public final class ServerFakeInteractionController {
                 || !player.level().setBlockAndUpdate(target, placed)) {
             return false;
         }
+        baritone.getCleanProcess().recordPlacedSupport(target);
         lookAt(target);
         if (!player.getAbilities().instabuild) stack.shrink(1);
         player.inventoryMenu.broadcastChanges();

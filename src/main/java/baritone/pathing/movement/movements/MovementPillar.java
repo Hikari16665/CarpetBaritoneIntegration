@@ -131,7 +131,13 @@ public class MovementPillar extends Movement {
         if (ladder) {
             return LADDER_UP_ONE_COST + hardness * 5;
         } else {
-            return JUMP_ONE_BLOCK_COST + placeCost + context.jumpPenalty + hardness;
+            double cost = JUMP_ONE_BLOCK_COST + placeCost
+                    + context.jumpPenalty + hardness;
+            if (context.shouldPreferPillarAt(x, y, z)) {
+                cost *= Math.max(0.05D, Baritone.settings()
+                        .goalDirectedPillarCostMultiplier.value);
+            }
+            return cost;
         }
     }
 

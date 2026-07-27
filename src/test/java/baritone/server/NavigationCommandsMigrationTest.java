@@ -25,5 +25,7 @@ public class NavigationCommandsMigrationTest {
         assertTrue(handler.contains("case \"thisway\", \"forward\""));
         assertTrue(handler.contains("case \"axis\", \"highway\""));
         assertTrue(handler.contains("case \"eta\""));
+        assertTrue(handler.contains(
+                "getCustomGoalProcess().setGoalAndPath("));
     }
 }

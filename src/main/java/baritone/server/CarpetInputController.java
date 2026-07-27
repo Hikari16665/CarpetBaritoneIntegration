@@ -62,6 +62,10 @@ public final class CarpetInputController implements IInputOverrideHandler {
         this.blockBreakTarget = target == null ? null : target.immutable();
     }
 
+    public boolean hasActiveBreakTarget() {
+        return blockBreakTarget != null || activeBreakTarget != null;
+    }
+
     /**
      * Applies one Baritone movement result and immediately forwards it to
      * Carpet's action pack.

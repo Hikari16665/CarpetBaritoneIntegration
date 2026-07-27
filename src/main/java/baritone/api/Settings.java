@@ -284,7 +284,17 @@ public final class Settings {
     public final Setting<Boolean> avoidUpdatingFallingBlocks = new Setting<>(true);
     public final Setting<Double> backtrackCostFavoringCoefficient = new Setting<>(0.5D);
     public final Setting<Double> blockBreakAdditionalPenalty = new Setting<>(2.0D);
-    public final Setting<Double> blockPlacementPenalty = new Setting<>(20.0D);
+    /**
+     * Server fake players can place without waiting for a client-side
+     * crosshair. Keep placement slightly more expensive than walking, but
+     * cheap enough that pillars and short bridges compete with long detours.
+     */
+    public final Setting<Double> blockPlacementPenalty = new Setting<>(1.0D);
+    public final Setting<Double> goalDirectedPlacementMultiplier =
+            new Setting<>(0.05D);
+    public final Setting<Double> goalDirectedPillarCostMultiplier =
+            new Setting<>(0.20D);
+    public final Setting<Boolean> diagnosticLogging = new Setting<>(true);
     public final Setting<List<Block>> blocksToAvoid =
             new Setting<>(new ArrayList<>(List.of(Blocks.TRIPWIRE)));
     public final Setting<List<Block>> blocksToDisallowBreaking =

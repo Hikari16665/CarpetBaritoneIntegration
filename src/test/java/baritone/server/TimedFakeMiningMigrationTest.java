@@ -19,8 +19,13 @@ public class TimedFakeMiningMigrationTest {
                 "MineProcess.java"));
         assertTrue(controller.contains("canBreakFromHere"));
         assertTrue(controller.contains("ClipContext.Block.OUTLINE"));
+        assertTrue(controller.contains(
+                "hit.getType() == HitResult.Type.MISS"));
         assertTrue(controller.contains("state.getDestroyProgress"));
         assertTrue(controller.contains("destroyBlockProgress"));
+        assertTrue(controller.contains("hardness == 0.0F"));
+        assertTrue(controller.contains(
+                "player.swing(InteractionHand.MAIN_HAND, true)"));
         assertTrue(controller.contains("breakProgress >= 1.0D")
                 || controller.contains("breakProgress < 1.0D"));
         assertTrue(mine.contains("canBreakFromHere(pos)"));

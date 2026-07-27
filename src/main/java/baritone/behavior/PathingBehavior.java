@@ -82,11 +82,18 @@ public final class PathingBehavior implements IPathingBehavior {
                 closest.sort(Comparator.comparingDouble(pos ->
                         ((pos.x + 0.5D) - playerX) * ((pos.x + 0.5D) - playerX)
                                 + ((pos.z + 0.5D) - playerZ) * ((pos.z + 0.5D) - playerZ)));
-                for (int i = 0; i < 4; i++) {
-                    BetterBlockPos possibleSupport = closest.get(i);
-                    double xDist = Math.abs((possibleSupport.x + 0.5D) - playerX);
-                    double zDist = Math.abs((possibleSupport.z + 0.5D) - playerZ);
-                    if (xDist > 0.8D && zDist > 0.8D) {
+                var playerBox = ctx.player().getBoundingBox();
+                for (BetterBlockPos possibleSupport : closest) {
+                    // Use the actual footprint rather than four nearest block
+                    // centres. This handles standing across an edge where one
+                    // of the two cells below the fake player is air.
+                    double overlapX = Math.min(playerBox.maxX,
+                            possibleSupport.x + 1.0D)
+                            - Math.max(playerBox.minX, possibleSupport.x);
+                    double overlapZ = Math.min(playerBox.maxZ,
+                            possibleSupport.z + 1.0D)
+                            - Math.max(playerBox.minZ, possibleSupport.z);
+                    if (overlapX <= 1.0E-4D || overlapZ <= 1.0E-4D) {
                         continue;
                     }
                     if (MovementHelper.canWalkOn(ctx, possibleSupport.below())

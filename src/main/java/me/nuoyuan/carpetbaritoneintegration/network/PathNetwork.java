@@ -12,6 +12,12 @@ public final class PathNetwork {
         PayloadTypeRegistry.playS2C().register(
                 PathSnapshotPayload.TYPE,
                 PathSnapshotPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playC2S().register(
+                ControlOptionsRequestPayload.TYPE,
+                ControlOptionsRequestPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playS2C().register(
+                ControlOptionsPayload.TYPE,
+                ControlOptionsPayload.STREAM_CODEC);
         registered = true;
     }
 }

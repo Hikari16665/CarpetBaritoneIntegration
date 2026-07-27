@@ -35,6 +35,10 @@ repositories {
         name = "babbaj"
         url = "https://babbaj.github.io/maven/"
     }
+    maven {
+        name = "DAQEM Studios Maven"
+        url = "https://maven.daqem.com/releases"
+    }
 }
 
 dependencies {
@@ -48,6 +52,7 @@ dependencies {
 
     //carpet mod!
     modImplementation "carpet:fabric-carpet:${project.carpet_core_version}"
+    modImplementation files("libs/uilib-2.1.4-1.21.6-fabric.jar")
 
     implementation "dev.babbaj:nether-pathfinder:1.6"
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"

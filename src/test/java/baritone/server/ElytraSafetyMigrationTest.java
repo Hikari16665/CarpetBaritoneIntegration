@@ -21,7 +21,7 @@ public class ElytraSafetyMigrationTest {
         assertTrue(process.contains("findSafeLandingSpot"));
         assertTrue(process.contains("safeLandingColumn"));
         assertTrue(process.contains(
-                "return state == State.INITIAL_CLIMB;"));
+                "|| state == State.CLIMB_BACK;"));
         assertTrue(inventory.contains("equipBestElytra"));
     }
 }

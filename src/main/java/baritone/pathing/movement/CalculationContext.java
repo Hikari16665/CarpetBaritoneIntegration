@@ -139,6 +139,19 @@ public class CalculationContext {
                 && world.dimension() != Level.NETHER;
         this.canSprint = Baritone.settings().allowSprint.value && player.getFoodData().getFoodLevel() > 6;
         this.placeBlockCost = Baritone.settings().blockPlacementPenalty.value;
+        if (Baritone.settings().diagnosticLogging.value
+                && baritone instanceof Baritone
+                && pathGoal != null) {
+            System.out.println("[CBI-DIAG] path-context player="
+                    + player.getScoreboardName() + " goal=" + pathGoal
+                    + " throwaway=" + hasThrowaway
+                    + " allowPlace=" + Baritone.settings().allowPlace.value
+                    + " placePenalty=" + placeBlockCost
+                    + " directedMultiplier=" + Baritone.settings()
+                            .goalDirectedPlacementMultiplier.value
+                    + " pillarMultiplier=" + Baritone.settings()
+                            .goalDirectedPillarCostMultiplier.value);
+        }
         this.allowBreak = !collectOnly && Baritone.settings().allowBreak.value;
         this.allowBreakAnyway = collectOnly ? new ArrayList<>()
                 : new ArrayList<>(Baritone.settings().allowBreakAnyway.value);
@@ -240,6 +253,20 @@ public class CalculationContext {
         }
         if (!Baritone.settings().allowPlaceInFluidsFlow.value && !current.getFluidState().isEmpty() && !current.getFluidState().isSource()) {
             return COST_INF;
+        }
+        if (pathGoal != null) {
+            double here = pathGoal.heuristic(x, y + 1, z);
+            double bestNeighbor = Math.min(
+                    Math.min(pathGoal.heuristic(x + 1, y + 1, z),
+                            pathGoal.heuristic(x - 1, y + 1, z)),
+                    Math.min(pathGoal.heuristic(x, y + 1, z + 1),
+                            pathGoal.heuristic(x, y + 1, z - 1)));
+            double above = pathGoal.heuristic(x, y + 2, z);
+            if (above < here || bestNeighbor < here) {
+                return placeBlockCost * Math.max(0.05D,
+                        Baritone.settings()
+                                .goalDirectedPlacementMultiplier.value);
+            }
         }
         return placeBlockCost;
     }

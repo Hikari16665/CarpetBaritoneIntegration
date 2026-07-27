@@ -14,6 +14,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Items;
@@ -37,8 +38,7 @@ public final class ServerInventoryController {
     }
 
     public boolean hasGenericThrowaway() {
-        return hasAccessibleItem(
-                stack -> isAcceptable(stack.getItem()));
+        return hasAccessibleItem(this::isGenericThrowaway);
     }
 
     public boolean selectThrowawayForLocation(boolean select, int x, int y, int z) {
@@ -58,7 +58,11 @@ public final class ServerInventoryController {
             }
         }
         if (slot < 0) {
-            if (!selectItem(stack -> isAcceptable(stack.getItem()))) {
+            // Prefer configured cheap blocks, then fall back to any safe,
+            // ordinary full cube. Path calculation and execution must share
+            // this exact predicate or a planned pillar can never execute.
+            if (!selectItem(stack -> isAcceptable(stack.getItem()))
+                    && !selectItem(this::isGenericThrowaway)) {
                 return false;
             }
             return true;
@@ -349,5 +353,19 @@ public final class ServerInventoryController {
 
     private static boolean isAcceptable(Item item) {
         return Baritone.settings().acceptableThrowawayItems.value.contains(item);
+    }
+
+    private boolean isGenericThrowaway(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        if (isAcceptable(stack.getItem())) return true;
+        if (!(stack.getItem() instanceof BlockItem blockItem)
+                || blockItem.getBlock() instanceof ShulkerBoxBlock
+                || blockItem.getBlock() instanceof FallingBlock) {
+            return false;
+        }
+        BlockState state = blockItem.getBlock().defaultBlockState();
+        return !state.hasBlockEntity()
+                && state.isCollisionShapeFullBlock(
+                        player.level(), player.blockPosition());
     }
 }

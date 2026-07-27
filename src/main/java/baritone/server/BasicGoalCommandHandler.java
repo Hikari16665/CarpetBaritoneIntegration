@@ -12,6 +12,7 @@ import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalXZ;
 import baritone.api.pathing.goals.GoalYLevel;
 import baritone.api.pathing.goals.GoalRunAway;
+import baritone.api.pathing.goals.GoalNear;
 import baritone.api.pathing.goals.GoalAxis;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.BlockOptionalMetaLookup;
@@ -43,6 +44,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -122,9 +124,9 @@ public final class BasicGoalCommandHandler {
                 if (args.length != 1) {
                     throw new IllegalArgumentException("用法: cbi come");
                 }
-                BetterBlockPos senderFeet = BetterBlockPos.from(sender.blockPosition());
                 startGoal(sender, fakePlayer, baritone,
-                        new GoalBlock(senderFeet), "发送者 " + sender.getScoreboardName());
+                        new GoalNear(sender.blockPosition(), 2),
+                        "发送者 " + sender.getScoreboardName(), true);
             }
             case "y" -> {
                 if (args.length != 2) {
@@ -1366,8 +1368,7 @@ public final class BasicGoalCommandHandler {
                 return parseSettingList(field, text);
             }
             if (defaultValue instanceof Map<?, ?>) {
-                throw new IllegalArgumentException(
-                        field.getName() + " 暂不支持通过聊天编辑映射");
+                return parseBlockMap(text);
             }
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException(
@@ -1404,12 +1405,34 @@ public final class BasicGoalCommandHandler {
                 values.add(block(token));
             } else if (element == Item.class) {
                 values.add(item(token));
+            } else if (element == String.class) {
+                values.add(token);
             } else {
                 throw new IllegalArgumentException(
                         field.getName() + " 的列表类型暂不支持");
             }
         }
         return values;
+    }
+
+    private static Map<Block, List<Block>> parseBlockMap(String text) {
+        Map<Block, List<Block>> result = new java.util.LinkedHashMap<>();
+        if (text.equalsIgnoreCase("none") || text.equals("{}")) {
+            return result;
+        }
+        for (String mapping : text.split(";")) {
+            String[] pair = mapping.split("=", 2);
+            if (pair.length != 2 || pair[0].isBlank()
+                    || pair[1].isBlank()) {
+                throw new IllegalArgumentException(
+                        "映射必须使用 source=target1|target2 格式");
+            }
+            List<Block> replacements = Arrays.stream(pair[1].split("\\|"))
+                    .map(BasicGoalCommandHandler::block)
+                    .toList();
+            result.put(block(pair[0]), new ArrayList<>(replacements));
+        }
+        return result;
     }
 
     private static String settingValue(Object value) {
@@ -1428,6 +1451,18 @@ public final class BasicGoalCommandHandler {
             return vector.getX() + "," + vector.getY()
                     + "," + vector.getZ();
         }
+        if (value instanceof Map<?, ?> map) {
+            if (map.isEmpty()) return "none";
+            return map.entrySet().stream().map(entry ->
+                    settingValue(entry.getKey()) + "="
+                            + ((List<?>) entry.getValue()).stream()
+                            .map(BasicGoalCommandHandler::settingValue)
+                            .collect(java.util.stream.Collectors.joining("|")))
+                    .collect(java.util.stream.Collectors.joining(";"));
+        }
+        if (value instanceof java.awt.Color color) {
+            return String.format("#%08X", color.getRGB());
+        }
         return String.valueOf(value);
     }
 
@@ -1443,11 +1478,24 @@ public final class BasicGoalCommandHandler {
             Goal goal,
             String destination
     ) {
+        startGoal(sender, fakePlayer, baritone, goal, destination, false);
+    }
+
+    private static void startGoal(
+            ServerPlayer sender,
+            ServerPlayer fakePlayer,
+            Baritone baritone,
+            Goal goal,
+            String destination,
+            boolean suppressTrashDiscard
+    ) {
         reply(fakePlayer, sender, "正在计算到 " + destination + " 的路径");
-        if (!baritone.pathToGoal(
-                goal, PRIMARY_TIMEOUT_MS, FAILURE_TIMEOUT_MS)) {
-            reply(fakePlayer, sender, "寻路调度队列已满，稍后重试");
-        }
+        // A naked pathToGoal has no process owner and is correctly reclaimed
+        // by PathingControlManager on the next tick. Keep direct navigation
+        // under CustomGoalProcess, matching upstream goal/path commands.
+        baritone.cancelAll();
+        baritone.getCustomGoalProcess().setGoalAndPath(
+                goal, suppressTrashDiscard);
     }
 
     private static int coordinate(String value, String axis) {

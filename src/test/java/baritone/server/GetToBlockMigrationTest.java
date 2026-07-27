@@ -20,5 +20,7 @@ public class GetToBlockMigrationTest {
         assertTrue(source.contains("rightClickContainerOnArrival"));
         assertTrue(source.contains("interactBlock"));
         assertTrue(source.contains("blockOnTopMustBeRemoved"));
+        assertTrue(source.contains(
+                "WorldScanner.INSTANCE.scanChunkRadius"));
     }
 }

@@ -209,9 +209,11 @@ public final class ElytraProcess implements IElytraProcess {
     }
 
     private static boolean usesBoost(State state) {
-        // The custom long-flight profile uses rockets only for the initial
-        // vertical launch. Subsequent 400 -> 1000 climbs conserve momentum.
-        return state == State.INITIAL_CLIMB;
+        // Both ascent legs need propulsion. GLIDE_DOWN deliberately saves
+        // rockets, while CLIMB_BACK must boost or pitching upward at the low
+        // altitude merely stalls the fake player.
+        return state == State.INITIAL_CLIMB
+                || state == State.CLIMB_BACK;
     }
 
     private void enterLanding() {

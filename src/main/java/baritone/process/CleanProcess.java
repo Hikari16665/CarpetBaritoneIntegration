@@ -3,45 +3,54 @@ package baritone.process;
 import baritone.Baritone;
 import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.goals.GoalBlock;
-import baritone.api.utils.BetterBlockPos;
-import baritone.api.utils.interfaces.IGoalRenderPos;
+import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.process.ICleanProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.selection.ISelection;
-import baritone.api.utils.Rotation;
+import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.RotationUtils;
-import baritone.api.utils.input.Input;
-import baritone.pathing.movement.MovementHelper;
+import baritone.api.utils.interfaces.IGoalRenderPos;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * Clears a cuboid top-down. Each layer seals liquid cells with throwaway
- * blocks before any blocks in that layer are broken.
+ * Strict top-down selection cleaner. Every mutation is followed by a fresh
+ * scan, so flowing fluids and falling blocks cannot be skipped.
  */
 public final class CleanProcess implements ICleanProcess {
-    private enum Phase { SEAL_FLUIDS, BREAK_LAYER }
+    private enum Phase { SEAL_FLUID, BREAK_BLOCK, REMOVE_SUPPORT }
 
     private final Baritone baritone;
+    private final Set<BlockPos> placedSupports = new LinkedHashSet<>();
+    private final Set<Long> theoreticalBreakStances =
+            new LinkedHashSet<>();
     private Consumer<String> feedback = ignored -> { };
     private BlockPos min;
     private BlockPos max;
-    private int y;
-    private int cursor;
-    private Phase phase;
     private BlockPos target;
-    private boolean targetWasFluid;
     private Goal currentGoal;
+    private BlockPos interactionStance;
+    private boolean sealingFluids = true;
+    private Phase phase = Phase.BREAK_BLOCK;
+    private int y;
     private int cleared;
     private int sealed;
     private int failedPaths;
     private int targetTicks;
-    private int verificationPass;
+    private Vec3 lastRoutePosition;
+    private int lastRoutePathIndex = -1;
+    private int stagnantRouteTicks;
 
     public CleanProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -58,135 +67,190 @@ public final class CleanProcess implements ICleanProcess {
     @Override
     public void clean(ISelection selection, Consumer<String> feedback) {
         onLostControl();
-        this.min = selection.min().immutable();
-        this.max = selection.max().immutable();
-        this.y = max.getY();
-        this.phase = Phase.SEAL_FLUIDS;
+        min = selection.min().immutable();
+        max = selection.max().immutable();
+        y = max.getY();
+        sealingFluids = true;
         this.feedback = feedback == null ? ignored -> { } : feedback;
     }
 
     public void serverTick() {
-        if (!isActive() || baritone.isPathing()) return;
+        if (!isActive()) return;
+        if (Baritone.settings().diagnosticLogging.value
+                && baritone.getPlayerContext().world().getGameTime() % 20L
+                        == 0L) {
+            System.out.println("[CBI-DIAG] clean player="
+                    + baritone.getPlayerContext().player()
+                            .getScoreboardName()
+                    + " phase=" + phase + " target=" + target
+                    + " feet=" + baritone.getPlayerContext().playerFeet()
+                    + " pathing=" + baritone.isPathing()
+                    + " withinReach=" + (target != null
+                            && withinReach(target))
+                    + " canBreak=" + (target != null
+                            && baritone.getFakeInteractionController()
+                                    .canBreakFromHere(target)));
+        }
+        if (baritone.isPathing()) {
+            if (cancelStagnantApproach()) return;
+            // A completed executor/calculation may survive for one or more
+            // control ticks. Once the target is physically reachable, stop
+            // that route and interact now instead of waiting forever.
+            if (target == null || !canPerformCurrentInteraction()) return;
+            diagnostic("arrived stance="
+                    + baritone.getPlayerContext().playerFeet()
+                    + " theoretical=" + theoreticalBreakStances.contains(
+                            baritone.getPlayerContext().playerFeet().asLong())
+                    + ", entering interaction mode");
+            interactionStance = baritone.getPlayerContext()
+                    .playerFeet().immutable();
+            // onTick runs before serverTick. Leaving the approach goal set
+            // here would make the process scheduler immediately start a new
+            // route on the next tick while timed mining is in progress.
+            currentGoal = null;
+            baritone.cancelPath();
+        }
         if (target != null && ++targetTicks > 400) {
-            feedback.accept("方块处理超时，已跳过: " + target);
-            advanceTarget();
+            // Retain the target, but force a fresh approach calculation.
+            failedPaths = 0;
+            targetTicks = 0;
+            currentGoal = null;
+            updateApproachGoal();
             return;
         }
         if (target == null) {
-            findNextTarget();
+            findHighestTarget();
             if (!isActive() || target == null) return;
         }
         BlockState state = baritone.getPlayerContext().world()
                 .getBlockState(target);
-        if (phase == Phase.SEAL_FLUIDS) {
+        if (state.isAir()) {
+            placedSupports.remove(target);
+            advanceTarget();
+            return;
+        }
+        if (phase == Phase.SEAL_FLUID) {
             if (state.getFluidState().isEmpty()) {
+                // The fluid disappeared or was replaced while approaching.
+                // Leave any resulting solid for the later global break phase.
                 advanceTarget();
                 return;
             }
             if (!withinReach(target)) {
-                updateApproachGoal();
+                ensureApproachGoal();
                 return;
             }
-            placeIntoFluid();
+            sealFluid();
             return;
         }
-        if (state.isAir()) {
+        if (!state.getFluidState().isEmpty()) {
+            sealingFluids = true;
+            phase = Phase.SEAL_FLUID;
+            return;
+        }
+        boolean theoretical = theoreticalBreakStances.contains(
+                baritone.getPlayerContext().playerFeet().asLong())
+                || sameCoordinates(baritone.getPlayerContext().playerFeet(),
+                        interactionStance);
+        if (!withinReach(target)
+                || !theoretical
+                && !baritone.getFakeInteractionController()
+                        .canBreakFromHere(target)) {
+            interactionStance = null;
+            ensureApproachGoal();
+            return;
+        }
+        // A path can finish naturally between executor.tick() and this
+        // process tick, bypassing the pathing branch above. Enter the same
+        // stable interaction mode here so timed mining cannot restart the
+        // completed approach on the following tick.
+        if (interactionStance == null) {
+            interactionStance = baritone.getPlayerContext()
+                    .playerFeet().immutable();
+            currentGoal = null;
+        }
+        if (baritone.getPlayerContext().world().getGameTime() % 20L == 0L) {
+            diagnostic("interaction target=" + target
+                    + " stance=" + baritone.getPlayerContext().playerFeet()
+                    + " theoretical=" + theoretical);
+        }
+        boolean broken = theoretical
+                ? baritone.getFakeInteractionController()
+                        .breakBlockTheoreticallyReachable(target)
+                : baritone.getFakeInteractionController()
+                        .breakBlock(target);
+        if (broken) {
+            placedSupports.remove(target);
             cleared++;
             advanceTarget();
-            return;
         }
-        // A fluid can reform after the seal pass. Seal it again before
-        // breaking so the fake player never enters it.
-        if (!state.getFluidState().isEmpty()) {
-            targetWasFluid = true;
-            if (!withinReach(target)) {
-                updateApproachGoal();
-                return;
-            }
-            placeIntoFluid();
-            return;
-        }
-        if (!withinReach(target)) {
-            updateApproachGoal();
-            return;
-        }
-        breakTarget(state);
     }
 
-    private void findNextTarget() {
-        int width = max.getX() - min.getX() + 1;
-        int length = max.getZ() - min.getZ() + 1;
-        int layerSize = width * length;
-        while (y >= min.getY()) {
-            while (cursor < layerSize) {
-                int index = cursor++;
-                int x = min.getX() + index % width;
-                int z = min.getZ() + index / width;
-                BlockPos pos = new BlockPos(x, y, z);
-                BlockState state = baritone.getPlayerContext().world()
-                        .getBlockState(pos);
-                boolean wanted = phase == Phase.SEAL_FLUIDS
-                        ? !state.getFluidState().isEmpty()
-                        : !state.isAir();
-                if (wanted) {
-                    target = pos;
-                    targetWasFluid = !state.getFluidState().isEmpty();
-                    updateApproachGoal();
-                    return;
-                }
-            }
-            cursor = 0;
-            if (phase == Phase.SEAL_FLUIDS) {
-                phase = Phase.BREAK_LAYER;
-            } else {
-                phase = Phase.SEAL_FLUIDS;
-                y--;
-            }
-        }
-        if (verificationPass == 0 && hasRemainingBlocks()) {
-            verificationPass = 1;
-            y = max.getY();
-            cursor = 0;
-            phase = Phase.SEAL_FLUIDS;
-            feedback.accept("检测到回流流体或残留方块，开始第二次清理");
-            return;
-        }
-        int remaining = countRemainingBlocks();
-        feedback.accept("选区清理完成：破坏 " + cleared
-                + " 个方块，填实 " + sealed + " 个流体格"
-                + (remaining == 0 ? "" : "，仍有 " + remaining
-                + " 个无法处理的方块或回流流体"));
-        onLostControl();
-    }
-
-    private void advanceTarget() {
-        target = null;
-        targetWasFluid = false;
-        currentGoal = null;
-        failedPaths = 0;
-        targetTicks = 0;
-    }
-
-    private boolean hasRemainingBlocks() {
-        return countRemainingBlocks() > 0;
-    }
-
-    private int countRemainingBlocks() {
-        int remaining = 0;
-        for (int checkY = min.getY(); checkY <= max.getY(); checkY++) {
-            for (int z = min.getZ(); z <= max.getZ(); z++) {
-                for (int x = min.getX(); x <= max.getX(); x++) {
-                    if (!baritone.getPlayerContext().world().getBlockState(
-                            new BlockPos(x, checkY, z)).isAir()) {
-                        remaining++;
+    private void findHighestTarget() {
+        if (sealingFluids) {
+            for (int checkY = max.getY(); checkY >= min.getY(); checkY--) {
+                for (int z = min.getZ(); z <= max.getZ(); z++) {
+                    for (int x = min.getX(); x <= max.getX(); x++) {
+                        BlockPos pos = new BlockPos(x, checkY, z);
+                        if (!baritone.getPlayerContext().world()
+                                .getBlockState(pos).getFluidState()
+                                .isEmpty()) {
+                            assign(pos, checkY, Phase.SEAL_FLUID);
+                            return;
+                        }
                     }
                 }
             }
+            // Do not begin breaking until a complete scan observes no fluid.
+            sealingFluids = false;
+            diagnostic("all fluids sealed, beginning top-down break phase");
         }
-        return remaining;
+        for (int checkY = max.getY(); checkY >= min.getY(); checkY--) {
+            BlockPos firstSolid = null;
+            for (int z = min.getZ(); z <= max.getZ(); z++) {
+                for (int x = min.getX(); x <= max.getX(); x++) {
+                    BlockPos pos = new BlockPos(x, checkY, z);
+                    BlockState state = baritone.getPlayerContext().world()
+                            .getBlockState(pos);
+                    if (state.isAir()) continue;
+                    if (!state.getFluidState().isEmpty()) {
+                        // A fluid update raced the completed seal scan. Return
+                        // to the global seal phase before breaking anything
+                        // else.
+                        sealingFluids = true;
+                        assign(pos, checkY, Phase.SEAL_FLUID);
+                        return;
+                    }
+                    if (firstSolid == null) firstSolid = pos;
+                }
+            }
+            if (firstSolid != null) {
+                assign(firstSolid, checkY, Phase.BREAK_BLOCK);
+                return;
+            }
+        }
+        BlockPos support = placedSupports.stream()
+                .filter(pos -> !baritone.getPlayerContext().world()
+                        .getBlockState(pos).isAir())
+                .max(Comparator.comparingInt(BlockPos::getY))
+                .orElse(null);
+        if (support != null) {
+            assign(support, support.getY(), Phase.REMOVE_SUPPORT);
+            return;
+        }
+        feedback.accept("选区清理完成：破坏 " + cleared
+                + " 个方块，封堵 " + sealed + " 个流体格");
+        onLostControl();
     }
 
-    private void placeIntoFluid() {
+    private void assign(BlockPos pos, int layer, Phase nextPhase) {
+        target = pos.immutable();
+        y = layer;
+        phase = nextPhase;
+        updateApproachGoal();
+    }
+
+    private void sealFluid() {
         if (!baritone.getInventoryController().selectThrowawayForLocation(
                 true, target.getX(), target.getY(), target.getZ())) {
             feedback.accept("没有可用于清除流体的完整垫脚方块，清理已停止");
@@ -196,72 +260,245 @@ public final class CleanProcess implements ICleanProcess {
         if (baritone.getFakeInteractionController()
                 .fillFluidWithSelectedBlock(target)) {
             sealed++;
+            // Keep the plug in place. The entire selection is sealed before
+            // any block, including this one, is broken.
+            advanceTarget();
         } else {
             updateApproachGoal();
         }
     }
 
-    private void breakTarget(BlockState state) {
-        if (!baritone.getFakeInteractionController().canReach(target)) {
-            updateApproachGoal();
-            return;
+    private void advanceTarget() {
+        target = null;
+        currentGoal = null;
+        interactionStance = null;
+        theoreticalBreakStances.clear();
+        failedPaths = 0;
+        targetTicks = 0;
+        resetRouteProgress();
+    }
+
+    /**
+     * The generic movement timeout includes the movement's estimated cost,
+     * which can be very large. Replan earlier when an approach executor
+     * neither advances its path index nor physically moves. Legitimate
+     * stationary block breaking is exempt.
+     */
+    private boolean cancelStagnantApproach() {
+        var executor = baritone.getPathExecutor();
+        if (executor == null) {
+            resetRouteProgress();
+            return false;
         }
-        baritone.getFakeInteractionController().breakBlock(target);
+        Vec3 position = baritone.getPlayerContext().player().position();
+        int pathIndex = executor.getPosition();
+        boolean progressed = lastRoutePosition == null
+                || position.distanceToSqr(lastRoutePosition) > 0.01D
+                || pathIndex != lastRoutePathIndex;
+        if (progressed) {
+            lastRoutePosition = position;
+            lastRoutePathIndex = pathIndex;
+            stagnantRouteTicks = 0;
+            return false;
+        }
+        if (baritone.getInputController().hasActiveBreakTarget()) {
+            stagnantRouteTicks = 0;
+            return false;
+        }
+        if (++stagnantRouteTicks < 60) return false;
+        diagnostic("stagnant pathIndex=" + pathIndex + " position="
+                + position + ", cancelling executor and recalculating");
+        baritone.cancelPath();
+        resetRouteProgress();
+        return true;
+    }
+
+    private void resetRouteProgress() {
+        lastRoutePosition = null;
+        lastRoutePathIndex = -1;
+        stagnantRouteTicks = 0;
     }
 
     private void updateApproachGoal() {
-        currentGoal = target == null
-                ? null : new GoalWithinInteractionReach(target);
+        if (target == null) {
+            currentGoal = null;
+        } else if (phase == Phase.SEAL_FLUID) {
+            currentGoal = new GoalWithinInteractionReach(target);
+        } else {
+            currentGoal = breakApproachGoal(target);
+        }
+    }
+
+    /**
+     * Keep one immutable approach goal for the current target. Rebuilding a
+     * large GoalComposite every server tick changes the process goal identity
+     * while its executor is still walking and can cause needless
+     * revalidation/recalculation near the destination.
+     */
+    private void ensureApproachGoal() {
+        if (currentGoal == null) updateApproachGoal();
+    }
+
+    private void diagnostic(String message) {
+        if (Baritone.settings().diagnosticLogging.value) {
+            System.out.println("[CBI-DIAG] clean-transition player="
+                    + baritone.getPlayerContext().player()
+                            .getScoreboardName()
+                    + " " + message);
+        }
+    }
+
+    private boolean canPerformCurrentInteraction() {
+        if (!withinReach(target)) return false;
+        return phase == Phase.SEAL_FLUID
+                || baritone.getFakeInteractionController()
+                        .canBreakFromHere(target)
+                || theoreticalBreakStances.contains(
+                        baritone.getPlayerContext().playerFeet().asLong())
+                || sameCoordinates(baritone.getPlayerContext().playerFeet(),
+                        interactionStance);
+    }
+
+    /**
+     * Enumerates standable nodes whose eye ray actually reaches the target.
+     * A plain distance goal can finish behind a wall, while fake breaking
+     * correctly refuses that occluded interaction.
+     */
+    private Goal breakApproachGoal(BlockPos block) {
+        var world = baritone.getPlayerContext().world();
+        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        double reachSq = reach * reach;
+        ArrayList<Goal> visibleStances = new ArrayList<>();
+        theoreticalBreakStances.clear();
+        int radius = (int) Math.ceil(reach);
+        for (int dy = -radius; dy <= radius; dy++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dx = -radius; dx <= radius; dx++) {
+                    BlockPos feet = block.offset(dx, dy, dz);
+                    Vec3 eye = new Vec3(feet.getX() + 0.5D,
+                            feet.getY() + 1.62D,
+                            feet.getZ() + 0.5D);
+                    if (eye.distanceToSqr(block.getCenter()) > reachSq
+                            || !standable(feet)) {
+                        continue;
+                    }
+                    if (hypotheticalCanSee(eye, block)) {
+                        visibleStances.add(new GoalBlock(feet));
+                        theoreticalBreakStances.add(feet.asLong());
+                    }
+                }
+            }
+        }
+        if (Baritone.settings().diagnosticLogging.value) {
+            System.out.println("[CBI-DIAG] clean-approach player="
+                    + baritone.getPlayerContext().player()
+                            .getScoreboardName()
+                    + " target=" + block
+                    + " visibleStances=" + visibleStances.size());
+        }
+        return visibleStances.isEmpty()
+                ? new GoalWithinInteractionReach(block)
+                : new GoalComposite(visibleStances.toArray(Goal[]::new));
+    }
+
+    private boolean hypotheticalCanSee(Vec3 eye, BlockPos block) {
+        Vec3[] samples = {
+                block.getCenter(),
+                block.getCenter().add(0.499D, 0D, 0D),
+                block.getCenter().add(-0.499D, 0D, 0D),
+                block.getCenter().add(0D, 0.499D, 0D),
+                block.getCenter().add(0D, -0.499D, 0D),
+                block.getCenter().add(0D, 0D, 0.499D),
+                block.getCenter().add(0D, 0D, -0.499D)
+        };
+        var world = baritone.getPlayerContext().world();
+        for (Vec3 sample : samples) {
+            HitResult hit = world.clip(new ClipContext(
+                    eye, sample, ClipContext.Block.OUTLINE,
+                    ClipContext.Fluid.NONE,
+                    baritone.getPlayerContext().player()));
+            if (hit.getType() == HitResult.Type.MISS) {
+                return true;
+            }
+            if (hit instanceof BlockHitResult blockHit
+                    && hit.getType() == HitResult.Type.BLOCK
+                    && blockHit.getBlockPos().equals(block)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean standable(BlockPos feet) {
+        var world = baritone.getPlayerContext().world();
+        BlockState atFeet = world.getBlockState(feet);
+        BlockState atHead = world.getBlockState(feet.above());
+        BlockState support = world.getBlockState(feet.below());
+        return atFeet.getCollisionShape(world, feet).isEmpty()
+                && atHead.getCollisionShape(world, feet.above()).isEmpty()
+                && !support.getCollisionShape(world, feet.below()).isEmpty();
+    }
+
+    private static boolean sameCoordinates(BlockPos first, BlockPos second) {
+        return first != null && second != null
+                && first.getX() == second.getX()
+                && first.getY() == second.getY()
+                && first.getZ() == second.getZ();
     }
 
     private boolean withinReach(BlockPos pos) {
-        return baritone.getPlayerContext().player().getEyePosition()
-                .distanceToSqr(pos.getCenter())
-                <= RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
-                * RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        // Match the fake interaction controller and vanilla block reach:
+        // distance is measured to the nearest point of the block volume, not
+        // its center. Center distance incorrectly rejects diagonal/downward
+        // fluid cells whose surface is already reachable.
+        return baritone.getFakeInteractionController().canReach(pos);
     }
 
     @Override
-    public PathingCommand onTick(
-            boolean calcFailed, boolean isSafeToCancel) {
+    public PathingCommand onTick(boolean calcFailed, boolean safeToCancel) {
         if (calcFailed && ++failedPaths >= 3) {
-            feedback.accept("无法安全到达清理位置 " + target
-                    + "，已跳过该方块");
-            advanceTarget();
+            // Clean must never blacklist/skip a block. Recalculate from the
+            // same target with block placement still enabled.
+            failedPaths = 0;
+            currentGoal = null;
+            updateApproachGoal();
         }
         return new PathingCommand(currentGoal,
-                currentGoal == null
-                        ? PathingCommandType.REQUEST_PAUSE
+                currentGoal == null ? PathingCommandType.REQUEST_PAUSE
                         : PathingCommandType.REVALIDATE_GOAL_AND_PATH);
+    }
+
+    /** Records clean-owned pillars/bridges so they are dismantled at the end. */
+    public void recordPlacedSupport(BlockPos pos) {
+        if (isActive() && pos != null) placedSupports.add(pos.immutable());
     }
 
     @Override public boolean isActive() { return min != null; }
     @Override public boolean isTemporary() { return false; }
+
     @Override
     public void onLostControl() {
         min = null;
         max = null;
         target = null;
         currentGoal = null;
-        cursor = 0;
+        interactionStance = null;
+        placedSupports.clear();
+        theoreticalBreakStances.clear();
         cleared = 0;
         sealed = 0;
         failedPaths = 0;
         targetTicks = 0;
-        verificationPass = 0;
-        targetWasFluid = false;
+        sealingFluids = true;
+        resetRouteProgress();
         baritone.getInputOverrideHandler().clearAllKeys();
     }
-    @Override public String displayName0() {
+
+    @Override
+    public String displayName0() {
         return "Clean selection y=" + y + " " + phase;
     }
 
-    /**
-     * GoalGetToBlock treats the block directly below the target as reached,
-     * even when a tall vertical gap still puts it outside interaction range.
-     * Model the standing node's eye position instead, so A* can choose a jump,
-     * stair or pillar until the target is genuinely reachable.
-     */
     private static final class GoalWithinInteractionReach
             implements Goal, IGoalRenderPos {
         private static final double EYE_HEIGHT = 1.62D;
@@ -275,26 +512,39 @@ public final class CleanProcess implements ICleanProcess {
 
         @Override
         public boolean isInGoal(int x, int y, int z) {
-            double dx = x - target.x;
-            double dy = y + EYE_HEIGHT - (target.y + 0.5D);
-            double dz = z - target.z;
+            double eyeY = y + EYE_HEIGHT;
+            // Path nodes represent a whole standing block, while the
+            // player's actual X/Z can be anywhere inside it. Use the
+            // farthest edge of that standing cell so reaching this goal
+            // guarantees the real player position can interact as well.
+            double dx = farthestDistance(
+                    x, x + 1.0D, target.x, target.x + 1.0D);
+            double dy = eyeY - Math.max(target.y,
+                    Math.min(eyeY, target.y + 1.0D));
+            double dz = farthestDistance(
+                    z, z + 1.0D, target.z, target.z + 1.0D);
             return dx * dx + dy * dy + dz * dz <= REACH * REACH;
+        }
+
+        private static double farthestDistance(
+                double fromMin, double fromMax,
+                double targetMin, double targetMax) {
+            double fromMinDistance = fromMin - Math.max(targetMin,
+                    Math.min(fromMin, targetMax));
+            double fromMaxDistance = fromMax - Math.max(targetMin,
+                    Math.min(fromMax, targetMax));
+            return Math.max(Math.abs(fromMinDistance),
+                    Math.abs(fromMaxDistance));
         }
 
         @Override
         public double heuristic(int x, int y, int z) {
             if (isInGoal(x, y, z)) return 0.0D;
-            int dx = x - target.x;
-            int dy = y - target.y;
-            int dz = z - target.z;
-            return Math.max(0.0D,
-                    GoalBlock.calculate(dx, dy, dz)
-                            - REACH * 3.563D);
+            return Math.max(0.0D, GoalBlock.calculate(
+                    x - target.x, y - target.y, z - target.z)
+                    - REACH * 3.563D);
         }
 
-        @Override
-        public BlockPos getGoalPos() {
-            return target;
-        }
+        @Override public BlockPos getGoalPos() { return target; }
     }
 }

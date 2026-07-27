@@ -279,7 +279,10 @@ public final class Baritone implements IBaritone {
                 calcFailedLastTick,
                 pathExecutor == null || pathExecutor.isSafeToCancel());
         calcFailedLastTick = false;
-        if (pathExecutor != null && !cleanProcess.isActive()) {
+        boolean suppressTrashDiscard = cleanProcess.isActive()
+                || followProcess.suppressesTrashDiscard()
+                || customGoalProcess.suppressesTrashDiscard();
+        if (pathExecutor != null && !suppressTrashDiscard) {
             trashDiscardController.observe(
                     pathExecutor.toBreak(), protectedDropOrigin, protectedDrop);
             backfillProcess.observe(pathExecutor.toBreak(), protectedDropOrigin);
@@ -351,7 +354,7 @@ public final class Baritone implements IBaritone {
             else if (controlled == giveAllProcess) giveAllProcess.serverTick();
             else if (controlled == cleanProcess) cleanProcess.serverTick();
         });
-        if (cleanProcess.isActive()) {
+        if (suppressTrashDiscard) {
             trashDiscardController.clear();
         } else {
             trashDiscardController.tick(
@@ -766,6 +769,29 @@ public final class Baritone implements IBaritone {
             pathingBehavior.setInProgress(null);
             calculationFuture = null;
             Optional<IPath> calculated = completion.result.getPath();
+            if (settings().diagnosticLogging.value) {
+                if (calculated.isPresent()) {
+                    long pillars = calculated.get().movements().stream()
+                            .filter(move -> move.getClass().getSimpleName()
+                                    .equals("MovementPillar")).count();
+                    long bridges = calculated.get().movements().stream()
+                            .filter(move -> move.getClass().getSimpleName()
+                                    .equals("MovementTraverse"))
+                            .count();
+                    System.out.println("[CBI-DIAG] path-result player="
+                            + playerContext.player().getScoreboardName()
+                            + " type=" + completion.result.getType()
+                            + " nodes=" + calculated.get().positions().size()
+                            + " pillars=" + pillars
+                            + " traverses=" + bridges
+                            + " dest=" + calculated.get().getDest());
+                } else {
+                    System.out.println("[CBI-DIAG] path-result player="
+                            + playerContext.player().getScoreboardName()
+                            + " type=" + completion.result.getType()
+                            + " noPath goal=" + completion.goal);
+                }
+            }
             if (calculated.isPresent()
                     && !pathSnapshotStillValid(
                             calculated.get(),
