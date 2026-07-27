@@ -26,6 +26,7 @@ import java.util.function.Predicate;
 public final class ServerInventoryController {
     private final ServerPlayer player;
     private Baritone baritone;
+    private int lastInventoryMoveTick = Integer.MIN_VALUE / 2;
 
     public ServerInventoryController(ServerPlayer player) {
         this.player = Objects.requireNonNull(player, "player");
@@ -66,7 +67,7 @@ public final class ServerInventoryController {
             return false;
         }
         if (select) {
-            selectInventorySlot(slot, 8);
+            return selectInventorySlot(slot, 8);
         }
         return true;
     }
@@ -79,17 +80,18 @@ public final class ServerInventoryController {
 
     public boolean selectItem(Predicate<ItemStack> desired) {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
-        for (int index = 0; index < inventory.size(); index++) {
+        int accessibleSlots = Baritone.settings().allowInventory.value
+                ? inventory.size() : Math.min(9, inventory.size());
+        for (int index = 0; index < accessibleSlots; index++) {
             if (desired.test(inventory.get(index))) {
-                selectInventorySlot(index, 7);
-                return true;
+                return selectInventorySlot(index, 7);
             }
         }
-        if (extractOneFromShulker(desired)) {
+        if (Baritone.settings().allowInventory.value
+                && extractOneFromShulker(desired)) {
             for (int index = 0; index < inventory.size(); index++) {
                 if (desired.test(inventory.get(index))) {
-                    selectInventorySlot(index, 7);
-                    return true;
+                    return selectInventorySlot(index, 7);
                 }
             }
         }
@@ -149,8 +151,12 @@ public final class ServerInventoryController {
      */
     public void ensureBestToolOnHotbar(BlockState state) {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
-        ToolLocation nestedBest = bestNestedTool(state);
-        double outerBestSpeed = inventory.stream()
+        boolean allowInventory = Baritone.settings().allowInventory.value;
+        int accessibleSlots = allowInventory
+                ? inventory.size() : Math.min(9, inventory.size());
+        ToolLocation nestedBest = allowInventory
+                ? bestNestedTool(state) : null;
+        double outerBestSpeed = inventory.subList(0, accessibleSlots).stream()
                 .filter(this::usableTool)
                 .mapToDouble(stack ->
                         ToolSet.calculateSpeedVsBlock(stack, state))
@@ -160,7 +166,7 @@ public final class ServerInventoryController {
         }
         int bestIndex = -1;
         double bestSpeed = -1.0D;
-        for (int index = 0; index < inventory.size(); index++) {
+        for (int index = 0; index < accessibleSlots; index++) {
             ItemStack stack = inventory.get(index);
             if (!usableTool(stack)) continue;
             double speed = ToolSet.calculateSpeedVsBlock(stack, state);
@@ -169,11 +175,12 @@ public final class ServerInventoryController {
                 bestIndex = index;
             }
         }
-        if (bestIndex >= 9) {
+        if (bestIndex >= 9 && canMoveInventoryNow()) {
             ItemStack hotbar = inventory.get(0);
             inventory.set(0, inventory.get(bestIndex));
             inventory.set(bestIndex, hotbar);
             player.inventoryMenu.broadcastChanges();
+            markInventoryMoved();
         }
     }
 
@@ -305,17 +312,39 @@ public final class ServerInventoryController {
         return -1;
     }
 
-    private void selectInventorySlot(int inventorySlot, int destinationHotbarSlot) {
+    private boolean selectInventorySlot(
+            int inventorySlot, int destinationHotbarSlot) {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
         int selected = inventorySlot;
         if (inventorySlot >= 9) {
+            if (!Baritone.settings().allowInventory.value
+                    || !canMoveInventoryNow()) {
+                return false;
+            }
             ItemStack hotbar = inventory.get(destinationHotbarSlot);
             inventory.set(destinationHotbarSlot, inventory.get(inventorySlot));
             inventory.set(inventorySlot, hotbar);
             player.inventoryMenu.broadcastChanges();
+            markInventoryMoved();
             selected = destinationHotbarSlot;
         }
         player.getInventory().setSelectedSlot(selected);
+        return true;
+    }
+
+    private boolean canMoveInventoryNow() {
+        if (Baritone.settings().inventoryMoveOnlyIfStationary.value
+                && player.getDeltaMovement().horizontalDistanceSqr()
+                > 1.0E-4D) {
+            return false;
+        }
+        int delay = Math.max(0,
+                Baritone.settings().ticksBetweenInventoryMoves.value);
+        return player.tickCount - lastInventoryMoveTick >= delay;
+    }
+
+    private void markInventoryMoved() {
+        lastInventoryMoveTick = player.tickCount;
     }
 
     private static boolean isAcceptable(Item item) {

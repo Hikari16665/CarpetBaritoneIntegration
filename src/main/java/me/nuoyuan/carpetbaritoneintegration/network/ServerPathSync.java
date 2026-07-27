@@ -1,7 +1,14 @@
 package me.nuoyuan.carpetbaritoneintegration.network;
 
 import baritone.Baritone;
+import baritone.api.Settings;
 import baritone.api.pathing.goals.Goal;
+import baritone.api.pathing.goals.GoalComposite;
+import baritone.api.pathing.goals.GoalGetToBlock;
+import baritone.api.pathing.goals.GoalInverted;
+import baritone.api.pathing.goals.GoalTwoBlocks;
+import baritone.api.pathing.goals.GoalXZ;
+import baritone.api.pathing.goals.GoalYLevel;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.interfaces.IGoalRenderPos;
 import baritone.server.ServerPathExecutor;
@@ -12,11 +19,20 @@ import net.minecraft.server.level.ServerPlayer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.WeakHashMap;
+import java.util.HashMap;
+import java.util.HashSet;
 
 /** Builds and sends bounded path snapshots to nearby visible players. */
 public final class ServerPathSync {
     private static final int SEND_INTERVAL_TICKS = 5;
+    private static final int HEARTBEAT_INTERVAL_TICKS = 40;
     private static final int MAX_POINTS = 1024;
+    private static final Map<Baritone, SyncState> SYNC_STATES =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private ServerPathSync() { }
 
@@ -34,6 +50,8 @@ public final class ServerPathSync {
                     .map(pos -> (BlockPos) pos).toList());
         }
         Goal goal = baritone.getActiveGoal();
+        List<PathSnapshotPayload.GoalRender> goalRenders =
+                goalRenders(goal, fake);
         List<BlockPos> selections = selectionCorners(baritone);
         BlockPos goalPos = goal instanceof IGoalRenderPos positioned
                 ? positioned.getGoalPos().immutable() : null;
@@ -45,6 +63,7 @@ public final class ServerPathSync {
                 || !calculating.best().isEmpty()
                 || !calculating.recent().isEmpty()
                 || !selections.isEmpty()
+                || !goalRenders.isEmpty()
                 || goalPos != null
                 || baritone.getPathingBehavior().getInProgress().isPresent()
                 || !process.isEmpty();
@@ -65,18 +84,33 @@ public final class ServerPathSync {
                 executorPositions(baritone.getPathExecutor(),
                         PositionKind.WALK_INTO),
                 selections,
+                renderSettings(),
+                goalRenders,
                 goalPos,
                 gameTime);
+        int contentHash = contentHash(payload);
+        SyncState syncState;
+        synchronized (SYNC_STATES) {
+            syncState = SYNC_STATES.computeIfAbsent(
+                    baritone, ignored -> new SyncState());
+        }
         int viewDistance = fake.getServer().getPlayerList()
                 .getViewDistance();
+        Set<UUID> currentlyVisible = new HashSet<>();
         for (ServerPlayer viewer :
                 fake.getServer().getPlayerList().getPlayers()) {
             if (isVisibleTo(fake, viewer, viewDistance)
                     && ServerPlayNetworking.canSend(
                     viewer, PathSnapshotPayload.TYPE)) {
-                ServerPlayNetworking.send(viewer, payload);
+                UUID viewerId = viewer.getUUID();
+                currentlyVisible.add(viewerId);
+                if (syncState.shouldSend(
+                        viewerId, contentHash, gameTime)) {
+                    ServerPlayNetworking.send(viewer, payload);
+                }
             }
         }
+        syncState.retain(currentlyVisible);
     }
 
     static boolean isVisibleTo(
@@ -145,6 +179,77 @@ public final class ServerPathSync {
         return List.copyOf(corners);
     }
 
+    private static PathSnapshotPayload.RenderSettings renderSettings() {
+        Settings settings = Baritone.settings();
+        return new PathSnapshotPayload.RenderSettings(
+                settings.renderPath.value,
+                settings.renderPathAsLine.value,
+                settings.renderGoal.value,
+                settings.renderSelectionBoxes.value,
+                settings.renderSelection.value,
+                settings.fadePath.value,
+                settings.yLevelBoxSize.value,
+                settings.colorCurrentPath.value.getRGB(),
+                settings.colorNextPath.value.getRGB(),
+                settings.colorBestPathSoFar.value.getRGB(),
+                settings.colorMostRecentConsidered.value.getRGB(),
+                settings.colorBlocksToBreak.value.getRGB(),
+                settings.colorBlocksToPlace.value.getRGB(),
+                settings.colorBlocksToWalkInto.value.getRGB(),
+                settings.colorGoalBox.value.getRGB(),
+                settings.colorInvertedGoalBox.value.getRGB(),
+                settings.colorSelection.value.getRGB());
+    }
+
+    private static List<PathSnapshotPayload.GoalRender> goalRenders(
+            Goal goal, ServerPlayer fake) {
+        List<PathSnapshotPayload.GoalRender> result = new ArrayList<>();
+        appendGoal(goal, false, fake, result);
+        return List.copyOf(result);
+    }
+
+    private static void appendGoal(
+            Goal goal, boolean inverted, ServerPlayer fake,
+            List<PathSnapshotPayload.GoalRender> result) {
+        if (goal == null || result.size() >= 256) return;
+        if (goal instanceof GoalInverted value) {
+            appendGoal(value.origin, !inverted, fake, result);
+            return;
+        }
+        if (goal instanceof GoalComposite value) {
+            for (Goal child : value.goals()) {
+                appendGoal(child, inverted, fake, result);
+                if (result.size() >= 256) break;
+            }
+            return;
+        }
+        if (goal instanceof GoalXZ value) {
+            result.add(new PathSnapshotPayload.GoalRender(
+                    PathSnapshotPayload.GoalKind.XZ_COLUMN,
+                    new BlockPos(value.getX(),
+                            fake.level().getMinY(), value.getZ()),
+                    inverted));
+            return;
+        }
+        if (goal instanceof GoalYLevel value) {
+            result.add(new PathSnapshotPayload.GoalRender(
+                    PathSnapshotPayload.GoalKind.Y_LEVEL,
+                    new BlockPos(fake.getBlockX(), value.level,
+                            fake.getBlockZ()),
+                    inverted));
+            return;
+        }
+        if (goal instanceof IGoalRenderPos value) {
+            PathSnapshotPayload.GoalKind kind =
+                    goal instanceof GoalGetToBlock
+                            || goal instanceof GoalTwoBlocks
+                            ? PathSnapshotPayload.GoalKind.BLOCK_ONE_HIGH
+                            : PathSnapshotPayload.GoalKind.BLOCK_TWO_HIGH;
+            result.add(new PathSnapshotPayload.GoalRender(
+                    kind, value.getGoalPos().immutable(), inverted));
+        }
+    }
+
     private static List<BlockPos> path(
             ServerPathExecutor executor, int start) {
         if (executor == null || executor.getPath() == null) {
@@ -185,6 +290,20 @@ public final class ServerPathSync {
         return List.copyOf(result);
     }
 
+    private static int contentHash(PathSnapshotPayload payload) {
+        return java.util.Objects.hash(
+                payload.fakePlayerId(), payload.dimension(),
+                payload.process(), payload.active(),
+                payload.currentPath(), payload.nextPath(),
+                payload.bestPathSoFar(),
+                payload.mostRecentConsidered(),
+                payload.blocksToBreak(), payload.blocksToPlace(),
+                payload.blocksToWalkInto(),
+                payload.selectionCorners(), payload.renderSettings(),
+                payload.goals(),
+                payload.goal());
+    }
+
     private enum PositionKind {
         BREAK, PLACE, WALK_INTO
     }
@@ -194,6 +313,29 @@ public final class ServerPathSync {
         private static CalculationPaths empty() {
             return new CalculationPaths(
                     Collections.emptyList(), Collections.emptyList());
+        }
+    }
+
+    private static final class SyncState {
+        private final Map<UUID, Integer> hashes = new HashMap<>();
+        private final Map<UUID, Long> lastSent = new HashMap<>();
+
+        private synchronized boolean shouldSend(
+                UUID viewer, int hash, long gameTime) {
+            Integer previous = hashes.get(viewer);
+            long last = lastSent.getOrDefault(viewer, Long.MIN_VALUE / 2);
+            if (previous != null && previous == hash
+                    && gameTime - last < HEARTBEAT_INTERVAL_TICKS) {
+                return false;
+            }
+            hashes.put(viewer, hash);
+            lastSent.put(viewer, gameTime);
+            return true;
+        }
+
+        private synchronized void retain(Set<UUID> viewers) {
+            hashes.keySet().retainAll(viewers);
+            lastSent.keySet().retainAll(viewers);
         }
     }
 }

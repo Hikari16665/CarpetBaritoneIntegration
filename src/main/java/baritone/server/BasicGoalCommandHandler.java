@@ -104,14 +104,11 @@ public final class BasicGoalCommandHandler {
 
     private static void execute(ServerPlayer sender, ServerPlayer fakePlayer, String command) {
         String[] args = command.isEmpty() ? new String[0] : command.split("\\s+");
-        if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
-            reply(fakePlayer, sender,
-                    "可用: goto, come, y, mine <方块...> [总数量], break <x> <y> <z>, "
-                            + "place <方块> <x> <y> <z>, runaway <距离>, avoid <on|off>, "
-                            + "collectItem <物品> <数量> <玩家>, follow <玩家>, "
-                            + "giveAll <玩家>, trash <list|add|remove>, "
-                            + "pos1, pos2, clean, areamine, set/settings, "
-                            + "stop, status, help");
+        if (args.length == 0
+                || args[0].equalsIgnoreCase("help")
+                || args[0].equalsIgnoreCase("commands")
+                || args[0].equals("?")) {
+            showHelp(sender, fakePlayer, args);
             return;
         }
 
@@ -1337,6 +1334,19 @@ public final class BasicGoalCommandHandler {
             if (defaultValue instanceof Float) return Float.parseFloat(text);
             if (defaultValue instanceof Double) return Double.parseDouble(text);
             if (defaultValue instanceof String) return text;
+            if (defaultValue instanceof java.awt.Color) {
+                String normalized = text.startsWith("#")
+                        ? text.substring(1) : text;
+                if (normalized.length() != 6
+                        && normalized.length() != 8) {
+                    throw new IllegalArgumentException(
+                            field.getName()
+                                    + " 必须使用 #RRGGBB 或 #AARRGGBB");
+                }
+                return new java.awt.Color(
+                        (int) Long.parseLong(normalized, 16),
+                        normalized.length() == 8);
+            }
             if (defaultValue instanceof net.minecraft.core.Vec3i) {
                 String[] components = text.split("[,:]");
                 if (components.length != 3) {
@@ -1522,6 +1532,24 @@ public final class BasicGoalCommandHandler {
                 Carpetbaritoneintegration.BARITONES.overBudgetTicks(),
                 baritone.getWorldCache().cachedChunkCount(),
                 baritone.getWorldCache().indexedLocationCount());
+    }
+
+    private static void showHelp(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            String[] args) {
+        if (args.length > 1) {
+            reply(fakePlayer, sender, "命令帮助查询: " + args[1]);
+        }
+        reply(fakePlayer, sender,
+                "导航: goto, come, y, goal, path, surface, thisway, axis, tunnel");
+        reply(fakePlayer, sender,
+                "任务: mine, areamine, collectItem, farm, build, clean, explore, follow, elytra");
+        reply(fakePlayer, sender,
+                "交互: break, place, giveAll, trash, pickup, blacklist, find");
+        reply(fakePlayer, sender,
+                "管理: pos1, pos2, sel, waypoint, settings, pause, resume, stop, status, stats");
+        reply(fakePlayer, sender,
+                "格式: /tell <假人> baritone <命令>；也可使用前缀 cbi");
     }
 
     private static void reply(ServerPlayer fakePlayer, ServerPlayer recipient, String message) {

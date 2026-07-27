@@ -127,6 +127,7 @@ public final class Baritone implements IBaritone {
             BetterBlockPos start,
             boolean nextSegment,
             Map<Long, Long> snapshotRevisions,
+            CalculationContext calculationContext,
             PathCalculationResult result) {}
 
     public Baritone(IPlayerContext playerContext) {
@@ -369,6 +370,7 @@ public final class Baritone implements IBaritone {
                         : blockTask == null ? stack -> false : blockTask::isDesiredMiningDrop);
         }
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
+        fakeInteractionController.serverTick();
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);
         gameEventHandler.onPostTick(post);
         ServerPathSync.tick(this);
@@ -716,7 +718,9 @@ public final class Baritone implements IBaritone {
                         .getPlayerList().getViewDistance()),
                 Math.max(0, settings()
                         .pathingSnapshotWarmupChunkBudget.value));
-        CalculationContext context = new CalculationContext(this, true, goal);
+        CalculationContext context = builderProcess.isPathingGoal(goal)
+                ? builderProcess.calculationContext(goal)
+                : new CalculationContext(this, true, goal);
         Map<Long, Long> snapshotRevisions =
                 getWorldCache().exactSnapshotRevisions();
         HybridPathFinder finder = new HybridPathFinder(
@@ -736,7 +740,7 @@ public final class Baritone implements IBaritone {
                         finder.calculate(primaryTimeout, failureTimeout);
                 pathCompletions.add(new PathCompletion(
                         generation, goal, start, nextSegment,
-                        snapshotRevisions, result));
+                        snapshotRevisions, context, result));
             });
             return true;
         } catch (RejectedExecutionException rejected) {
@@ -784,7 +788,8 @@ public final class Baritone implements IBaritone {
                         || calculated.get().positions().contains(
                                 pathingBehavior.pathStart()))) {
                     pathExecutor = new ServerPathExecutor(
-                            this, pathingBehavior, calculated.get());
+                            this, pathingBehavior, calculated.get(),
+                            completion.calculationContext);
                     gameEventHandler.onPathEvent(
                             PathEvent.CALC_FINISHED_NOW_EXECUTING);
                 } else if (calculated.isPresent()
@@ -792,7 +797,8 @@ public final class Baritone implements IBaritone {
                         && calculated.get().getSrc().equals(
                         pathExecutor.getPath().getDest())) {
                     nextPathExecutor = new ServerPathExecutor(
-                            this, pathingBehavior, calculated.get());
+                            this, pathingBehavior, calculated.get(),
+                            completion.calculationContext);
                     gameEventHandler.onPathEvent(
                             PathEvent.NEXT_SEGMENT_CALC_FINISHED);
                 } else if (completion.result.getType()
@@ -815,7 +821,8 @@ public final class Baritone implements IBaritone {
                     || calculated.get().positions().contains(
                             pathingBehavior.pathStart()))) {
                 pathExecutor = new ServerPathExecutor(
-                        this, pathingBehavior, calculated.get());
+                        this, pathingBehavior, calculated.get(),
+                        completion.calculationContext);
                 consecutivePathFailures = 0;
                 gameEventHandler.onPathEvent(
                         PathEvent.CALC_FINISHED_NOW_EXECUTING);

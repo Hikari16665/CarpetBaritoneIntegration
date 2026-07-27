@@ -10,6 +10,7 @@ import baritone.api.pathing.movement.MovementStatus;
 import baritone.api.pathing.path.IPathExecutor;
 import baritone.behavior.PathingBehavior;
 import baritone.pathing.path.PathExecutor;
+import baritone.pathing.movement.CalculationContext;
 
 import java.util.Objects;
 import java.util.Set;
@@ -29,8 +30,15 @@ public final class ServerPathExecutor implements IPathExecutor {
     private boolean canceled;
 
     public ServerPathExecutor(Baritone baritone, PathingBehavior behavior, IPath path) {
+        this(baritone, behavior, path, null);
+    }
+
+    public ServerPathExecutor(
+            Baritone baritone, PathingBehavior behavior, IPath path,
+            CalculationContext calculationContext) {
         this.baritone = Objects.requireNonNull(baritone, "baritone");
-        Objects.requireNonNull(behavior, "behavior").refreshCalculationContext();
+        Objects.requireNonNull(behavior, "behavior")
+                .refreshCalculationContext(calculationContext);
         this.delegate = new PathExecutor(
                 behavior, Objects.requireNonNull(path, "path"));
     }

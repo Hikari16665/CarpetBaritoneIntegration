@@ -5,6 +5,8 @@ import baritone.api.pathing.goals.Goal;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
+import baritone.api.event.events.PathEvent;
+import net.minecraft.network.chat.Component;
 
 /** Pure-server adaptation of the original CustomGoalProcess state machine. */
 public final class CustomGoalProcess implements ICustomGoalProcess {
@@ -44,6 +46,11 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
         if (goal.isInGoal(baritone.getPlayerContext().playerFeet())
                 && goal.isInGoal(baritone.getPathingBehavior().pathStart())) {
             baritone.cancelPath();
+            baritone.getGameEventHandler().onPathEvent(PathEvent.AT_GOAL);
+            if (Baritone.settings().disconnectOnArrival.value) {
+                baritone.getPlayerContext().player().connection.disconnect(
+                        Component.literal("[Baritone] Arrived at goal!"));
+            }
             onLostControl();
             return;
         }

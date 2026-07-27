@@ -21,9 +21,14 @@ public class PathRenderingParityMigrationTest {
         for (String field : new String[]{
                 "bestPathSoFar", "mostRecentConsidered",
                 "blocksToBreak", "blocksToPlace",
-                "blocksToWalkInto", "selectionCorners"}) {
+                "blocksToWalkInto", "selectionCorners",
+                "renderSettings"}) {
             assertTrue(payload.contains(field));
             assertTrue(renderer.contains(field + "()"));
         }
+        assertTrue(payload.contains("enum GoalKind"));
+        assertTrue(payload.contains("XZ_COLUMN"));
+        assertTrue(payload.contains("Y_LEVEL"));
+        assertTrue(renderer.contains("goal.inverted()"));
     }
 }

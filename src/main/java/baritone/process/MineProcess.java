@@ -162,6 +162,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
 
         BlockPos reachable = knownOreLocations.stream()
                 .filter(this::withinReach)
+                .filter(pos -> baritone.getFakeInteractionController()
+                        .canBreakFromHere(pos))
                 .filter(pos -> filter.has(ctx.world().getBlockState(pos)))
                 .min(Comparator.comparingDouble(ctx.playerFeet()::distSqr)).orElse(null);
         if (reachable != null && isSafeToCancel) {
@@ -486,8 +488,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     }
 
     private boolean withinReach(BlockPos pos) {
-        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
-        return ctx.player().getEyePosition().distanceToSqr(pos.getCenter()) <= reach * reach;
+        return baritone.getFakeInteractionController().canReach(pos);
     }
 
     private void rememberDesiredDrops(BlockPos pos) {

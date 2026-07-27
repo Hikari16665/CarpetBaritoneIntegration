@@ -62,24 +62,49 @@ public final class ClientPathRenderer {
         for (CachedSnapshot cached : SNAPSHOTS.values()) {
             PathSnapshotPayload snapshot = cached.payload;
             if (!dimension.equals(snapshot.dimension())) continue;
-            drawPath(lines, pose, camera,
-                    snapshot.currentPath(), 255, 0, 0, 210);
-            drawPath(lines, pose, camera,
-                    snapshot.nextPath(), 255, 0, 255, 190);
-            drawPath(lines, pose, camera,
-                    snapshot.bestPathSoFar(), 0, 128, 255, 190);
-            drawPath(lines, pose, camera,
-                    snapshot.mostRecentConsidered(), 0, 255, 255, 170);
-            drawBoxes(lines, pose, camera,
-                    snapshot.blocksToBreak(), 255, 64, 64, 220);
-            drawBoxes(lines, pose, camera,
-                    snapshot.blocksToPlace(), 64, 128, 255, 220);
-            drawBoxes(lines, pose, camera,
-                    snapshot.blocksToWalkInto(), 255, 170, 0, 210);
-            drawSelections(lines, pose, camera,
-                    snapshot.selectionCorners());
-            if (snapshot.goal() != null) {
-                drawGoal(lines, pose, camera, snapshot.goal());
+            PathSnapshotPayload.RenderSettings settings =
+                    snapshot.renderSettings();
+            if (settings.renderPath()) {
+                drawPath(lines, pose, camera, snapshot.currentPath(),
+                        settings.currentPathColor(), 210,
+                        settings.fadePath());
+                drawPath(lines, pose, camera, snapshot.nextPath(),
+                        settings.nextPathColor(), 190,
+                        settings.fadePath());
+                drawPath(lines, pose, camera, snapshot.bestPathSoFar(),
+                        settings.bestPathColor(), 190,
+                        settings.fadePath());
+                drawPath(lines, pose, camera,
+                        snapshot.mostRecentConsidered(),
+                        settings.recentPathColor(), 170,
+                        settings.fadePath());
+            }
+            if (settings.renderSelectionBoxes()) {
+                drawBoxes(lines, pose, camera, snapshot.blocksToBreak(),
+                        settings.breakColor(), 220);
+                drawBoxes(lines, pose, camera, snapshot.blocksToPlace(),
+                        settings.placeColor(), 220);
+                drawBoxes(lines, pose, camera,
+                        snapshot.blocksToWalkInto(),
+                        settings.walkIntoColor(), 210);
+            }
+            if (settings.renderSelection()) {
+                drawSelections(lines, pose, camera,
+                        snapshot.selectionCorners(),
+                        settings.selectionColor());
+            }
+            if (settings.renderGoal()) {
+                if (!snapshot.goals().isEmpty()) {
+                    for (PathSnapshotPayload.GoalRender goal
+                            : snapshot.goals()) {
+                        drawGoal(lines, pose, camera, goal, settings,
+                                client.level.getMinY(),
+                                client.level.getMaxY());
+                    }
+                } else if (snapshot.goal() != null) {
+                    drawGoal(lines, pose, camera, snapshot.goal(),
+                            settings.goalColor());
+                }
             }
         }
     }
@@ -87,8 +112,13 @@ public final class ClientPathRenderer {
     private static void drawPath(
             VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
             List<BlockPos> positions,
-            int red, int green, int blue, int alpha) {
+            int color, int baseAlpha, boolean fade) {
         for (int index = 0; index + 1 < positions.size(); index++) {
+            int alpha = fade && index > 10
+                    ? Math.max(0, baseAlpha
+                    * (20 - Math.min(20, index)) / 10)
+                    : baseAlpha;
+            if (alpha == 0) break;
             BlockPos from = positions.get(index);
             BlockPos to = positions.get(index + 1);
             line(consumer, pose, camera,
@@ -96,32 +126,67 @@ public final class ClientPathRenderer {
                     from.getZ() + 0.5D,
                     to.getX() + 0.5D, to.getY() + 0.53D,
                     to.getZ() + 0.5D,
-                    red, green, blue, alpha);
+                    red(color), green(color), blue(color), alpha);
         }
     }
 
     private static void drawGoal(
             VertexConsumer consumer, PoseStack.Pose pose,
-            Vec3 camera, BlockPos goal) {
+            Vec3 camera, BlockPos goal, int color) {
         drawBox(consumer, pose, camera, goal,
                 0.03D, 0.97D, 0.03D, 1.97D,
-                0, 255, 0, 220);
+                red(color), green(color), blue(color), 220);
+    }
+
+    private static void drawGoal(
+            VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
+            PathSnapshotPayload.GoalRender goal,
+            PathSnapshotPayload.RenderSettings settings,
+            int worldMinY, int worldMaxY) {
+        BlockPos pos = goal.position();
+        int color = goal.inverted()
+                ? settings.invertedGoalColor()
+                : settings.goalColor();
+        switch (goal.kind()) {
+            case BLOCK_TWO_HIGH ->
+                    drawGoal(consumer, pose, camera, pos, color);
+            case BLOCK_ONE_HIGH ->
+                    drawBox(consumer, pose, camera, pos,
+                            0.03D, 0.97D, 0.03D, 0.97D,
+                            red(color), green(color), blue(color), 220);
+            case XZ_COLUMN ->
+                    drawBounds(consumer, pose, camera,
+                            pos.getX() + 0.03D, worldMinY,
+                            pos.getZ() + 0.03D,
+                            pos.getX() + 0.97D, worldMaxY,
+                            pos.getZ() + 0.97D,
+                            red(color), green(color), blue(color), 220);
+            case Y_LEVEL -> {
+                double radius = settings.yLevelBoxSize();
+                drawBounds(consumer, pose, camera,
+                        pos.getX() + 0.5D - radius, pos.getY() + 0.03D,
+                        pos.getZ() + 0.5D - radius,
+                        pos.getX() + 0.5D + radius, pos.getY() + 1.97D,
+                        pos.getZ() + 0.5D + radius,
+                        red(color), green(color), blue(color), 220);
+            }
+        }
     }
 
     private static void drawBoxes(
             VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
             List<BlockPos> positions,
-            int red, int green, int blue, int alpha) {
+            int color, int alpha) {
         for (BlockPos position : positions) {
             drawBox(consumer, pose, camera, position,
                     0.01D, 0.99D, 0.01D, 0.99D,
-                    red, green, blue, alpha);
+                    red(color), green(color), blue(color), alpha);
         }
     }
 
     private static void drawSelections(
             VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
-            List<BlockPos> corners) {
+            List<BlockPos> corners, int color) {
         for (int index = 0; index + 1 < corners.size(); index += 2) {
             BlockPos min = corners.get(index);
             BlockPos max = corners.get(index + 1);
@@ -130,8 +195,20 @@ public final class ClientPathRenderer {
                     min.getZ() + 0.002D,
                     max.getX() + 0.998D, max.getY() + 0.998D,
                     max.getZ() + 0.998D,
-                    255, 255, 255, 210);
+                    red(color), green(color), blue(color), 210);
         }
+    }
+
+    private static int red(int color) {
+        return color >> 16 & 0xFF;
+    }
+
+    private static int green(int color) {
+        return color >> 8 & 0xFF;
+    }
+
+    private static int blue(int color) {
+        return color & 0xFF;
     }
 
     private static void drawBox(

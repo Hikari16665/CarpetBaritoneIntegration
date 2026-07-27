@@ -16,6 +16,7 @@ import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
 import baritone.api.utils.input.Input;
 import baritone.pathing.movement.MovementHelper;
+import baritone.pathing.movement.CalculationContext;
 import baritone.utils.BlockStateInterface;
 import baritone.utils.schematic.format.DefaultSchematicFormats;
 import baritone.utils.schematic.SelectionSchematic;
@@ -39,6 +40,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import static baritone.api.pathing.movement.ActionCosts.COST_INF;
 
 /** Pure-server schematic builder process. */
 public final class BuilderProcess implements IBuilderProcess {
@@ -218,6 +221,90 @@ public final class BuilderProcess implements IBuilderProcess {
             }
         }
         return ScanResult.COMPLETE;
+    }
+
+    public boolean isPathingGoal(baritone.api.pathing.goals.Goal goal) {
+        return isActive() && !paused && target != null
+                && new GoalGetToBlock(target).equals(goal);
+    }
+
+    public CalculationContext calculationContext(
+            baritone.api.pathing.goals.Goal goal) {
+        return new BuilderCalculationContext(goal);
+    }
+
+    private final class BuilderCalculationContext
+            extends CalculationContext {
+        private final List<BlockState> placeable;
+        private final ISchematic buildSchematic;
+        private final BlockPos buildOrigin;
+
+        private BuilderCalculationContext(
+                baritone.api.pathing.goals.Goal goal) {
+            super(BuilderProcess.this.baritone, true, goal);
+            this.placeable = List.copyOf(approxPlaceable);
+            this.buildSchematic = schematic;
+            this.buildOrigin = origin;
+            this.jumpPenalty += 10D;
+            this.backtrackCostFavoringCoefficient = 1D;
+        }
+
+        private BlockState schematicAt(
+                int x, int y, int z, BlockState current) {
+            int localX = x - buildOrigin.getX();
+            int localY = y - buildOrigin.getY();
+            int localZ = z - buildOrigin.getZ();
+            if (!buildSchematic.inSchematic(
+                    localX, localY, localZ, current)) {
+                return null;
+            }
+            return buildSchematic.desiredState(
+                    localX, localY, localZ, current, placeable);
+        }
+
+        @Override
+        public double costOfPlacingAt(
+                int x, int y, int z, BlockState current) {
+            if (isPossiblyProtected(x, y, z)
+                    || !worldBorder.canPlaceAt(x, z)) {
+                return COST_INF;
+            }
+            BlockState wanted = schematicAt(x, y, z, current);
+            if (wanted == null) {
+                return hasThrowaway ? placeBlockCost : COST_INF;
+            }
+            if (wanted.isAir()) {
+                return hasThrowaway
+                        ? placeBlockCost * Baritone.settings()
+                                .placeIncorrectBlockPenaltyMultiplier.value
+                        : COST_INF;
+            }
+            if (placeable.stream().anyMatch(
+                    state -> sameEnough(state, wanted))) {
+                return 0D;
+            }
+            return hasThrowaway
+                    ? placeBlockCost * 1.5D * Baritone.settings()
+                            .placeIncorrectBlockPenaltyMultiplier.value
+                    : COST_INF;
+        }
+
+        @Override
+        public double breakCostMultiplierAt(
+                int x, int y, int z, BlockState current) {
+            if ((!allowBreak
+                    && !allowBreakAnyway.contains(current.getBlock()))
+                    || isPossiblyProtected(x, y, z)) {
+                return COST_INF;
+            }
+            BlockState wanted = schematicAt(x, y, z, current);
+            if (wanted != null && !wanted.isAir()
+                    && sameEnough(current, wanted)) {
+                return Baritone.settings()
+                        .breakCorrectBlockPenaltyMultiplier.value;
+            }
+            return 1D;
+        }
     }
 
     private int effectiveLayerHeight() {

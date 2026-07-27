@@ -4,6 +4,7 @@ import baritone.Baritone;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
 import baritone.pathing.movement.MovementHelper;
+import baritone.cache.ServerWorldCache;
 import baritone.utils.BlockStateInterface;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,6 +26,8 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +42,11 @@ import java.util.function.Predicate;
 public final class ServerFakeInteractionController {
     private final Baritone baritone;
     private final ServerPlayer player;
+    private BlockPos activeBreakTarget;
+    private double breakProgress;
+    private long lastBreakProgressTick = Long.MIN_VALUE;
+    private long lastBreakRequestTick = Long.MIN_VALUE;
+    private long nextBreakAllowedTick;
 
     public ServerFakeInteractionController(Baritone baritone) {
         this.baritone = Objects.requireNonNull(baritone);
@@ -72,14 +80,89 @@ public final class ServerFakeInteractionController {
     }
 
     public boolean breakBlock(BlockPos pos) {
-        if (!canReach(pos)) return false;
+        long gameTime = player.level().getGameTime();
+        lastBreakRequestTick = gameTime;
+        if (!canBreakFromHere(pos)) {
+            if (pos.equals(activeBreakTarget)) resetBreakProgress();
+            return false;
+        }
         BlockState state = player.level().getBlockState(pos);
-        if (state.isAir()) return true;
+        if (state.isAir()) {
+            if (pos.equals(activeBreakTarget)) resetBreakProgress();
+            return true;
+        }
+        if (gameTime < nextBreakAllowedTick) return false;
+        if (!pos.equals(activeBreakTarget)) {
+            resetBreakProgress();
+            activeBreakTarget = pos.immutable();
+        }
         baritone.getInventoryController().ensureBestToolOnHotbar(state);
         MovementHelper.switchToBestToolFor(
                 baritone.getPlayerContext(), state);
         lookAt(pos);
-        return player.gameMode.destroyBlock(pos);
+        if (player.getAbilities().instabuild) {
+            return finishBreak(pos, gameTime);
+        }
+        if (lastBreakProgressTick == gameTime) return false;
+        lastBreakProgressTick = gameTime;
+        double increment = state.getDestroyProgress(
+                player, player.level(), pos);
+        if (!(increment > 0D) || !Double.isFinite(increment)) {
+            return false;
+        }
+        breakProgress += increment;
+        player.level().destroyBlockProgress(
+                player.getId(), pos,
+                Math.min(9, Math.max(0,
+                        (int) (breakProgress * 10.0D))));
+        if (breakProgress < 1.0D) return false;
+        return finishBreak(pos, gameTime);
+    }
+
+    /** Fake interaction removes crosshair alignment, not solid occlusion. */
+    public boolean canBreakFromHere(BlockPos pos) {
+        if (!canReach(pos)) return false;
+        HitResult hit = player.level().clip(new ClipContext(
+                player.getEyePosition(), pos.getCenter(),
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE,
+                player));
+        return hit instanceof BlockHitResult blockHit
+                && hit.getType() == HitResult.Type.BLOCK
+                && blockHit.getBlockPos().equals(pos);
+    }
+
+    public void serverTick() {
+        long gameTime = player.level().getGameTime();
+        if (activeBreakTarget != null
+                && lastBreakRequestTick < gameTime) {
+            resetBreakProgress();
+        }
+    }
+
+    private boolean finishBreak(BlockPos pos, long gameTime) {
+        boolean destroyed = player.gameMode.destroyBlock(pos);
+        if (destroyed && player.level() instanceof ServerLevel level
+                && Baritone.settings().repackOnAnyBlockChange.value) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    pos.getX() >> 4, pos.getZ() >> 4);
+        }
+        resetBreakProgress();
+        if (destroyed) {
+            nextBreakAllowedTick = gameTime
+                    + Math.max(1, Baritone.settings()
+                            .blockBreakSpeed.value);
+        }
+        return destroyed;
+    }
+
+    private void resetBreakProgress() {
+        if (activeBreakTarget != null) {
+            player.level().destroyBlockProgress(
+                    player.getId(), activeBreakTarget, -1);
+        }
+        activeBreakTarget = null;
+        breakProgress = 0D;
+        lastBreakProgressTick = Long.MIN_VALUE;
     }
 
     /**
@@ -89,10 +172,45 @@ public final class ServerFakeInteractionController {
     public boolean placeSelectedBlock(BlockPos target) {
         if (!canReach(target)) return false;
         ItemStack stack = player.getMainHandItem();
-        if (!(stack.getItem() instanceof BlockItem)) return false;
+        if (!(stack.getItem() instanceof BlockItem blockItem)) return false;
         BlockState current = player.level().getBlockState(target);
         if (!current.canBeReplaced()) return false;
-        return useSelectedAt(target);
+        if (useSelectedAt(target)
+                && !player.level().getBlockState(target).canBeReplaced()) {
+            return true;
+        }
+        return placeFullBlockDirect(target, blockItem, stack);
+    }
+
+    /**
+     * Server-side fallback for ordinary throwaway blocks. It is only used
+     * after vanilla fabricated-face placement failed and still enforces
+     * replaceability, survival, collision, reach and inventory consumption.
+     */
+    private boolean placeFullBlockDirect(
+            BlockPos target, BlockItem blockItem, ItemStack stack) {
+        BlockState current = player.level().getBlockState(target);
+        if (!current.canBeReplaced()) return true;
+        BlockState placed = blockItem.getBlock().defaultBlockState();
+        if (placed.getCollisionShape(player.level(), target).isEmpty()
+                || !placed.canSurvive(player.level(), target)
+                || !player.level().isUnobstructed(
+                        null, placed.getCollisionShape(
+                                player.level(), target).move(target))) {
+            return false;
+        }
+        if (!player.level().setBlockAndUpdate(target, placed)) {
+            return false;
+        }
+        lookAt(target);
+        if (!player.getAbilities().instabuild) stack.shrink(1);
+        player.inventoryMenu.broadcastChanges();
+        if (player.level() instanceof ServerLevel level
+                && Baritone.settings().repackOnAnyBlockChange.value) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    target.getX() >> 4, target.getZ() >> 4);
+        }
+        return true;
     }
 
     /**

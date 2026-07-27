@@ -44,6 +44,11 @@ public final class PathingBehavior implements IPathingBehavior {
         calculationContext = new CalculationContext(baritone);
     }
 
+    public void refreshCalculationContext(CalculationContext context) {
+        calculationContext = context == null
+                ? new CalculationContext(baritone) : context;
+    }
+
     @Override
     public Optional<IPathFinder> getInProgress() {
         return Optional.ofNullable(inProgress);

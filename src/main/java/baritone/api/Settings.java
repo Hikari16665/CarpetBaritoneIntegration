@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.awt.Color;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.core.Vec3i;
@@ -24,6 +25,74 @@ import net.minecraft.core.Vec3i;
  * goal and heuristic model.</p>
  */
 public final class Settings {
+
+    // Server fake players have no human-operated inventory screen. Keep the
+    // upstream switch, but default it on so planned placements can actually
+    // move a throwaway stack from the main inventory into the hotbar.
+    public final Setting<Boolean> allowInventory = new Setting<>(true);
+    public final Setting<Integer> ticksBetweenInventoryMoves =
+            new Setting<>(1);
+    public final Setting<Boolean> inventoryMoveOnlyIfStationary =
+            new Setting<>(false);
+    public final Setting<Integer> blockBreakSpeed = new Setting<>(6);
+    public final Setting<Integer> rightClickSpeed = new Setting<>(4);
+    public final Setting<Boolean> antiCheatCompatibility =
+            new Setting<>(true);
+    public final Setting<Boolean> pathThroughCachedOnly =
+            new Setting<>(false);
+    public final Setting<Boolean> simplifyUnloadedYCoord =
+            new Setting<>(true);
+    public final Setting<Boolean> disconnectOnArrival =
+            new Setting<>(false);
+    public final Setting<Boolean> smoothLook = new Setting<>(false);
+    public final Setting<Integer> smoothLookTicks = new Setting<>(5);
+    public final Setting<Boolean> breakFromAbove = new Setting<>(false);
+    public final Setting<Boolean> goalBreakFromAbove =
+            new Setting<>(false);
+    public final Setting<Integer> incorrectSize = new Setting<>(100);
+    public final Setting<Double> breakCorrectBlockPenaltyMultiplier =
+            new Setting<>(10D);
+    public final Setting<Double> placeIncorrectBlockPenaltyMultiplier =
+            new Setting<>(2D);
+    public final Setting<Integer> builderTickScanRadius =
+            new Setting<>(5);
+    public final Setting<Boolean> distanceTrim = new Setting<>(true);
+
+    // Client rendering values are evaluated on the server and transported
+    // with path snapshots, keeping the pathing implementation client-free.
+    public final Setting<Boolean> renderPath = new Setting<>(true);
+    public final Setting<Boolean> renderPathAsLine = new Setting<>(false);
+    public final Setting<Boolean> renderGoal = new Setting<>(true);
+    public final Setting<Boolean> renderGoalAnimated = new Setting<>(true);
+    public final Setting<Boolean> renderSelectionBoxes = new Setting<>(true);
+    public final Setting<Boolean> renderSelection = new Setting<>(true);
+    public final Setting<Boolean> fadePath = new Setting<>(false);
+    public final Setting<Float> pathRenderLineWidthPixels =
+            new Setting<>(5F);
+    public final Setting<Float> goalRenderLineWidthPixels =
+            new Setting<>(3F);
+    public final Setting<Float> selectionLineWidth = new Setting<>(2F);
+    public final Setting<Double> yLevelBoxSize = new Setting<>(15D);
+    public final Setting<Color> colorCurrentPath =
+            new Setting<>(Color.RED);
+    public final Setting<Color> colorNextPath =
+            new Setting<>(Color.MAGENTA);
+    public final Setting<Color> colorBlocksToBreak =
+            new Setting<>(Color.RED);
+    public final Setting<Color> colorBlocksToPlace =
+            new Setting<>(Color.GREEN);
+    public final Setting<Color> colorBlocksToWalkInto =
+            new Setting<>(Color.MAGENTA);
+    public final Setting<Color> colorBestPathSoFar =
+            new Setting<>(Color.BLUE);
+    public final Setting<Color> colorMostRecentConsidered =
+            new Setting<>(Color.CYAN);
+    public final Setting<Color> colorGoalBox =
+            new Setting<>(Color.GREEN);
+    public final Setting<Color> colorInvertedGoalBox =
+            new Setting<>(Color.RED);
+    public final Setting<Color> colorSelection =
+            new Setting<>(Color.CYAN);
 
     public final Setting<Double> costHeuristic = new Setting<>(3.563D);
     public final Setting<Boolean> censorCoordinates = new Setting<>(false);
