@@ -213,6 +213,12 @@ public final class BlockInteractionTask {
             collectionTarget = null;
             return;
         }
+        if (baritone.getFakeInteractionController()
+                .pickup(collectionTarget)) {
+            collectionTarget = null;
+            collectionWaitTicks = 0;
+            return;
+        }
 
         ServerPlayer player = baritone.getPlayerContext().player();
         if (player.distanceToSqr(collectionTarget) > 4.0D) {
@@ -285,24 +291,15 @@ public final class BlockInteractionTask {
     }
 
     private void breakTick() {
-        Optional<Rotation> rotation = RotationUtils.reachable(
-                baritone.getPlayerContext(), target, RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE);
-        if (rotation.isEmpty()) {
+        if (!baritone.getFakeInteractionController().canReach(target)) {
             if (tryInternalMiningApproach()) {
                 return;
             }
             finish("目标方块在附近，但没有可交互的表面: " + format(target));
             return;
         }
-        MovementHelper.switchToBestToolFor(
-                baritone.getPlayerContext(),
-                BlockStateInterface.get(baritone.getPlayerContext(), target),
-                new ToolSet(baritone.getPlayerContext().player()),
-                Baritone.settings().preferSilkTouch.value
-        );
         rememberDesiredDrops();
-        baritone.getInputController().setBlockBreakTarget(target);
-        applyInteraction(rotation.get(), Input.CLICK_LEFT);
+        baritone.getFakeInteractionController().breakBlock(target);
     }
 
     private void placeTick() {
@@ -312,20 +309,9 @@ public final class BlockInteractionTask {
             return;
         }
         baritone.getPlayerContext().player().getInventory().setSelectedSlot(slot);
-        for (Direction direction : Direction.values()) {
-            BlockPos support = target.relative(direction);
-            if (baritone.getPlayerContext().world().getBlockState(support).isAir()) {
-                continue;
-            }
-            Optional<Rotation> rotation = RotationUtils.reachable(
-                    baritone.getPlayerContext(),
-                    support,
-                    RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
-            );
-            if (rotation.isPresent()) {
-                applyInteraction(rotation.get(), Input.CLICK_RIGHT);
-                return;
-            }
+        if (baritone.getFakeInteractionController()
+                .placeSelectedBlock(target)) {
+            return;
         }
         finish("目标位置周围没有可点击的支撑方块");
     }

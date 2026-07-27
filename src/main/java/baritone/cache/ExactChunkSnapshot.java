@@ -4,6 +4,7 @@
  */
 package baritone.cache;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -65,6 +66,35 @@ public final class ExactChunkSnapshot {
                 level.getMaxY(),
                 copy,
                 revision);
+    }
+
+    /**
+     * Copy-on-write update for a single changed block. Returns {@code null}
+     * when an all-air section must be materialized; the caller can then copy
+     * the authoritative chunk once instead.
+     */
+    public ExactChunkSnapshot withBlock(
+            BlockPos pos, BlockState state, long newRevision) {
+        if ((pos.getX() >> 4) != chunkX
+                || (pos.getZ() >> 4) != chunkZ
+                || pos.getY() < minY || pos.getY() >= maxY) {
+            return this;
+        }
+        int index = (pos.getY() >> 4) - minSection;
+        if (index < 0 || index >= sections.length) return this;
+        LevelChunkSection existing = sections[index];
+        if (existing == null && !state.isAir()) return null;
+        LevelChunkSection[] updated = sections.clone();
+        if (existing != null) {
+            LevelChunkSection section = existing.copy();
+            section.setBlockState(
+                    pos.getX() & 15, pos.getY() & 15,
+                    pos.getZ() & 15, state);
+            updated[index] = section.hasOnlyAir() ? null : section;
+        }
+        return new ExactChunkSnapshot(
+                chunkX, chunkZ, minSection, minY, maxY,
+                updated, newRevision);
     }
 
     public BlockState getBlockState(int x, int y, int z) {

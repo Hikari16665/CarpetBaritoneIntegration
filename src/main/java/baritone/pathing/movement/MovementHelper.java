@@ -800,61 +800,31 @@ public interface MovementHelper extends ActionCosts, Helper {
 
     static PlaceResult attemptToPlaceABlock(MovementState state, IBaritone baritone, BlockPos placeAt, boolean preferDown, boolean wouldSneak) {
         IPlayerContext ctx = baritone.getPlayerContext();
-        Optional<Rotation> direct = RotationUtils.reachable(ctx, placeAt, wouldSneak); // we assume that if there is a block there, it must be replacable
-        boolean found = false;
-        if (direct.isPresent()) {
-            state.setTarget(new MovementTarget(direct.get(), true));
-            found = true;
-        }
-        for (int i = 0; i < 5; i++) {
-            BlockPos against1 = placeAt.relative(HORIZONTALS_BUT_ALSO_DOWN_____SO_EVERY_DIRECTION_EXCEPT_UP[i]);
-            if (MovementHelper.canPlaceAgainst(ctx, against1)) {
-                if (!baritone.getInventoryController().selectThrowawayForLocation(false, placeAt.getX(), placeAt.getY(), placeAt.getZ())) { // get ready to place a throwaway block
-                    Helper.HELPER.logDebug("bb pls get me some blocks. dirt, netherrack, cobble");
-                    state.setStatus(MovementStatus.UNREACHABLE);
-                    return PlaceResult.NO_OPTION;
-                }
-                double faceX = (placeAt.getX() + against1.getX() + 1.0D) * 0.5D;
-                double faceY = (placeAt.getY() + against1.getY() + 0.5D) * 0.5D;
-                double faceZ = (placeAt.getZ() + against1.getZ() + 1.0D) * 0.5D;
-                Rotation place = RotationUtils.calcRotationFromVec3d(wouldSneak ? RayTraceUtils.inferSneakingEyePosition(ctx.player()) : ctx.playerHead(), new Vec3(faceX, faceY, faceZ), ctx.playerRotations());
-                Rotation actual = baritone.getLookBehavior().getAimProcessor().peekRotation(place);
-                HitResult res = RayTraceUtils.rayTraceTowards(
-                        ctx.player(),
-                        actual,
-                        RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE,
-                        wouldSneak
-                );
-                if (res != null && res.getType() == HitResult.Type.BLOCK && ((BlockHitResult) res).getBlockPos().equals(against1) && ((BlockHitResult) res).getBlockPos().relative(((BlockHitResult) res).getDirection()).equals(placeAt)) {
-                    state.setTarget(new MovementTarget(place, true));
-                    found = true;
-
-                    if (!preferDown) {
-                        // if preferDown is true, we want the last option
-                        // if preferDown is false, we want the first
-                        break;
-                    }
+        if (baritone instanceof Baritone serverBaritone
+                && serverBaritone.getFakeInteractionController()
+                .canReach(placeAt)) {
+            if (!baritone.getInventoryController()
+                    .selectThrowawayForLocation(
+                            true, placeAt.getX(),
+                            placeAt.getY(), placeAt.getZ())) {
+                state.setStatus(MovementStatus.UNREACHABLE);
+                return PlaceResult.NO_OPTION;
+            }
+            boolean hasSupport = false;
+            for (Direction direction :
+                    HORIZONTALS_BUT_ALSO_DOWN_____SO_EVERY_DIRECTION_EXCEPT_UP) {
+                if (canPlaceAgainst(ctx, placeAt.relative(direction))) {
+                    hasSupport = true;
+                    break;
                 }
             }
-        }
-        if (ctx.getSelectedBlock().isPresent()) {
-            BlockPos selectedBlock = ctx.getSelectedBlock().get();
-            Direction side = ((BlockHitResult) ctx.objectMouseOver()).getDirection();
-            // only way for selectedBlock.equals(placeAt) to be true is if it's replaceable
-            if (selectedBlock.equals(placeAt) || (MovementHelper.canPlaceAgainst(ctx, selectedBlock) && selectedBlock.relative(side).equals(placeAt))) {
-                if (wouldSneak) {
-                    state.setInput(Input.SNEAK, true);
-                }
-                baritone.getInventoryController().selectThrowawayForLocation(true, placeAt.getX(), placeAt.getY(), placeAt.getZ());
-                return PlaceResult.READY_TO_PLACE;
-            }
-        }
-        if (found) {
-            if (wouldSneak) {
-                state.setInput(Input.SNEAK, true);
-            }
-            baritone.getInventoryController().selectThrowawayForLocation(true, placeAt.getX(), placeAt.getY(), placeAt.getZ());
-            return PlaceResult.ATTEMPTING;
+            if (!hasSupport) return PlaceResult.NO_OPTION;
+            Rotation visual = RotationUtils.calcRotationFromVec3d(
+                    ctx.playerHead(), VecUtils.getBlockPosCenter(placeAt),
+                    ctx.playerRotations());
+            state.setTarget(new MovementTarget(visual, true));
+            if (wouldSneak) state.setInput(Input.SNEAK, true);
+            return PlaceResult.READY_TO_PLACE;
         }
         return PlaceResult.NO_OPTION;
     }

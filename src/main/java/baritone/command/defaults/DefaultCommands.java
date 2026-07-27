@@ -9,6 +9,8 @@ public final class DefaultCommands {
     public static List<ICommand> createAll(IBaritone baritone) {
         return List.of(
                 new HelpCommand(baritone),
+                new SettingsCommand(baritone),
+                new CleanCommand(baritone),
                 new GotoCommand(baritone),
                 new MineCommand(baritone),
                 new CollectItemCommand(baritone),

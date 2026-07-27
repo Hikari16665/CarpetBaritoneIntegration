@@ -54,6 +54,16 @@ public final class Settings {
     public final Setting<Integer> planningTickLookahead = new Setting<>(150);
     public final Setting<Long> primaryTimeoutMS = new Setting<>(500L);
     public final Setting<Long> failureTimeoutMS = new Setting<>(2000L);
+    /** CollectItem cannot break through walls, so distant openings need a
+     * wider search window than ordinary replaceable navigation. */
+    public final Setting<Long> collectItemPrimaryTimeoutMS =
+            new Setting<>(1500L);
+    public final Setting<Long> collectItemFailureTimeoutMS =
+            new Setting<>(8000L);
+    public final Setting<Long> collectItemPlanAheadPrimaryTimeoutMS =
+            new Setting<>(1000L);
+    public final Setting<Long> collectItemPlanAheadFailureTimeoutMS =
+            new Setting<>(6000L);
     public final Setting<Long> planAheadPrimaryTimeoutMS = new Setting<>(4000L);
     public final Setting<Long> planAheadFailureTimeoutMS = new Setting<>(5000L);
     public final Setting<Integer> pathingFailureRetryCount = new Setting<>(3);
@@ -65,6 +75,8 @@ public final class Settings {
     public final Setting<Double> mineBlockBreakAdditionalPenalty =
             new Setting<>(0.0D);
     public final Setting<Boolean> splicePath = new Setting<>(true);
+    public final Setting<Boolean> cancelOnGoalInvalidation =
+            new Setting<>(true);
     public final Setting<Boolean> blacklistClosestOnFailure = new Setting<>(true);
     public final Setting<Integer> mineMaxOreLocationsCount = new Setting<>(64);
     public final Setting<Integer> minYLevelWhileMining = new Setting<>(0);
@@ -84,11 +96,19 @@ public final class Settings {
     public final Setting<Integer> mineGoalUpdateInterval = new Setting<>(5);
     public final Setting<Boolean> exploreForBlocks = new Setting<>(true);
     public final Setting<Boolean> mineScanDroppedItems = new Setting<>(true);
+    public final Setting<Boolean> legitMine = new Setting<>(false);
+    public final Setting<Integer> legitMineYLevel = new Setting<>(-59);
+    public final Setting<Boolean> legitMineIncludeDiagonals =
+            new Setting<>(false);
+    public final Setting<Long> mineDropLoiterDurationMSThanksLouca =
+            new Setting<>(250L);
     public final Setting<Boolean> forceInternalMining = new Setting<>(true);
     public final Setting<Boolean> internalMiningAirException = new Setting<>(true);
     public final Setting<Boolean> chunkCaching = new Setting<>(true);
     public final Setting<Integer> chunkPackerQueueMaxSize = new Setting<>(2000);
     public final Setting<Integer> maxCachedWorldScanCount = new Setting<>(10);
+    public final Setting<Integer> synchronousWorldScannerChunkBudget =
+            new Setting<>(2);
     public final Setting<Boolean> extendCacheOnThreshold = new Setting<>(false);
     public final Setting<Boolean> repackOnAnyBlockChange = new Setting<>(true);
     public final Setting<Boolean> pruneRegionsFromRAM = new Setting<>(true);
@@ -98,7 +118,10 @@ public final class Settings {
     public final Setting<Boolean> replantNetherWart = new Setting<>(false);
     public final Setting<Integer> farmMaxScanSize = new Setting<>(256);
     public final Setting<Boolean> elytraAutoJump = new Setting<>(false);
+    public final Setting<Boolean> elytraAutoSwap = new Setting<>(true);
     public final Setting<Integer> elytraMinimumDurability = new Setting<>(5);
+    public final Setting<Integer> elytraMinFireworksBeforeLanding =
+            new Setting<>(5);
     public final Setting<Boolean> elytraAllowEmergencyLand = new Setting<>(true);
     public final Setting<Integer> elytraCruiseAltitude = new Setting<>(1000);
     public final Setting<Integer> elytraGlideLowAltitude = new Setting<>(400);
@@ -113,6 +136,19 @@ public final class Settings {
     public final Setting<Integer> startAtLayer = new Setting<>(0);
     public final Setting<Boolean> skipFailedLayers = new Setting<>(false);
     public final Setting<Boolean> buildOnlySelection = new Setting<>(false);
+    public final Setting<Boolean> okIfWater = new Setting<>(false);
+    public final Setting<List<Block>> okIfAir =
+            new Setting<>(new ArrayList<>());
+    public final Setting<List<Block>> buildIgnoreBlocks =
+            new Setting<>(new ArrayList<>());
+    public final Setting<Boolean> buildIgnoreExisting =
+            new Setting<>(false);
+    public final Setting<Boolean> buildIgnoreDirection =
+            new Setting<>(false);
+    public final Setting<List<String>> buildIgnoreProperties =
+            new Setting<>(new ArrayList<>());
+    public final Setting<Map<Block, List<Block>>> buildValidSubstitutes =
+            new Setting<>(new HashMap<>());
     public final Setting<Boolean> schematicOrientationX = new Setting<>(false);
     public final Setting<Boolean> schematicOrientationY = new Setting<>(false);
     public final Setting<Boolean> schematicOrientationZ = new Setting<>(false);

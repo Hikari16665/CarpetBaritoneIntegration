@@ -2,8 +2,10 @@ package baritone.process;
 
 import baritone.Baritone;
 import baritone.api.pathing.goals.Goal;
+import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.pathing.goals.GoalGetToBlock;
+import baritone.api.pathing.goals.GoalRunAway;
 import baritone.api.pathing.goals.GoalTwoBlocks;
 import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.PathingCommand;
@@ -27,7 +29,9 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
     private List<BlockPos> knownLocations;
     private final List<BlockPos> blacklist = new ArrayList<>();
     private Goal currentGoal;
+    private BlockPos start;
     private int ticks;
+    private int arrivalTicks;
 
     public GetToBlockProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -37,6 +41,7 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
     public void getToBlock(BlockOptionalMeta block) {
         onLostControl();
         gettingTo = block;
+        start = baritone.getPlayerContext().playerFeet();
         ServerWorldCache.registerTrackedBlocks(
                 java.util.List.of(block.getBlock()));
         var feet = baritone.getPlayerContext().playerFeet();
@@ -55,8 +60,12 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
             scanWorld();
         }
         if (knownLocations.isEmpty()) {
-            // The shared incremental chunk index has not discovered one yet.
-            // Keep the process alive without forcing a full view-distance scan.
+            if (Baritone.settings().exploreForBlocks.value) {
+                currentGoal = explorationGoal();
+                if (baritone.getPathExecutor() == null) {
+                    baritone.pathToGoal(currentGoal, 2_000L, 8_000L);
+                }
+            }
             return;
         }
         currentGoal = new GoalComposite(knownLocations.stream()
@@ -64,7 +73,15 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
         if (currentGoal.isInGoal(baritone.getPlayerContext().playerFeet())
                 && currentGoal.isInGoal(baritone.getPathingBehavior().pathStart())) {
             baritone.cancelPath();
-            onLostControl();
+            if (rightClickOnArrival(gettingTo.getBlock())) {
+                if (baritone.getFakeInteractionController()
+                        .interactBlock(closestReachableLocation())
+                        || arrivalTicks++ > 20) {
+                    onLostControl();
+                }
+            } else {
+                onLostControl();
+            }
             return;
         }
         if (baritone.getPathExecutor() == null
@@ -82,7 +99,55 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
         if (Baritone.settings().enterPortal.value && block == Blocks.NETHER_PORTAL) {
             return new GoalTwoBlocks(pos);
         }
+        if (blockOnTopMustBeRemoved(block)
+                && !baritone.getPlayerContext().world()
+                        .getBlockState(pos.above()).isAir()) {
+            return new GoalBlock(pos.above());
+        }
         return new GoalGetToBlock(pos);
+    }
+
+    private Goal explorationGoal() {
+        return new GoalRunAway(1, start) {
+            @Override
+            public boolean isInGoal(int x, int y, int z) {
+                return false;
+            }
+
+            @Override
+            public double heuristic() {
+                return Double.NEGATIVE_INFINITY;
+            }
+        };
+    }
+
+    private BlockPos closestReachableLocation() {
+        BlockPos feet = baritone.getPlayerContext().playerFeet();
+        return knownLocations.stream()
+                .filter(baritone.getFakeInteractionController()::canReach)
+                .min(Comparator.comparingDouble(feet::distSqr))
+                .orElseGet(() -> knownLocations.stream()
+                        .min(Comparator.comparingDouble(feet::distSqr))
+                        .orElse(feet));
+    }
+
+    private static boolean rightClickOnArrival(Block block) {
+        if (!Baritone.settings().rightClickContainerOnArrival.value) {
+            return false;
+        }
+        return block == Blocks.CRAFTING_TABLE
+                || block == Blocks.FURNACE
+                || block == Blocks.BLAST_FURNACE
+                || block == Blocks.ENDER_CHEST
+                || block == Blocks.CHEST
+                || block == Blocks.TRAPPED_CHEST;
+    }
+
+    private static boolean blockOnTopMustBeRemoved(Block block) {
+        return rightClickOnArrival(block)
+                && (block == Blocks.ENDER_CHEST
+                        || block == Blocks.CHEST
+                        || block == Blocks.TRAPPED_CHEST);
     }
 
     private void scanWorld() {
@@ -131,7 +196,12 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
     @Override public boolean isActive() { return gettingTo != null; }
     @Override public boolean isTemporary() { return false; }
     @Override public void onLostControl() {
-        gettingTo = null; knownLocations = null; currentGoal = null; blacklist.clear();
+        gettingTo = null;
+        knownLocations = null;
+        currentGoal = null;
+        start = null;
+        arrivalTicks = 0;
+        blacklist.clear();
     }
     @Override public String displayName0() {
         return "Get To " + gettingTo + ", "

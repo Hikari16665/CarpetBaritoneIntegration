@@ -30,8 +30,15 @@ public final class GameEventHandler implements IEventBus {
         dispatch(l->l.onChunkEvent(e));
     }
     @Override public void onBlockChange(BlockChangeEvent e){
-        ServerWorldCache.get(baritone.getPlayerContext().world()).invalidateChunk(
-                e.getChunkPos().x,e.getChunkPos().z);
+        var world = baritone.getPlayerContext().world();
+        var cache = ServerWorldCache.get(world);
+        var chunk = world.getChunkSource().getChunkNow(
+                e.getChunkPos().x, e.getChunkPos().z);
+        if (chunk != null) {
+            e.getBlocks().forEach(change ->
+                    cache.updateBlock(change.first(),
+                            change.second(), chunk));
+        }
         dispatch(l->l.onBlockChange(e));
     }
     @Override public void onRenderPass(RenderEvent e){dispatch(l->l.onRenderPass(e));}

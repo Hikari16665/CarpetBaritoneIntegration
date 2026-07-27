@@ -228,8 +228,11 @@ public class MovementTraverse extends Movement {
             boolean canOpen = !(Blocks.IRON_DOOR.equals(pb0.getBlock()) || Blocks.IRON_DOOR.equals(pb1.getBlock()));
 
             if (notPassable && canOpen) {
-                return state.setTarget(new MovementState.MovementTarget(RotationUtils.calcRotationFromVec3d(ctx.playerHead(), VecUtils.calculateBlockCenter(ctx.world(), positionsToBreak[0]), ctx.playerRotations()), true))
-                        .setInput(Input.CLICK_RIGHT, true);
+                if (baritone instanceof Baritone serverBaritone) {
+                    serverBaritone.getFakeInteractionController()
+                            .interactBlock(positionsToBreak[0]);
+                }
+                return state;
             }
         }
 
@@ -238,9 +241,10 @@ public class MovementTraverse extends Movement {
                     : !MovementHelper.isGatePassable(ctx, positionsToBreak[1], src) ? positionsToBreak[1]
                     : null;
             if (blocked != null) {
-                Optional<Rotation> rotation = RotationUtils.reachable(ctx, blocked);
-                if (rotation.isPresent()) {
-                    return state.setTarget(new MovementState.MovementTarget(rotation.get(), true)).setInput(Input.CLICK_RIGHT, true);
+                if (baritone instanceof Baritone serverBaritone
+                        && serverBaritone.getFakeInteractionController()
+                        .interactBlock(blocked)) {
+                    return state;
                 }
             }
         }
@@ -341,7 +345,9 @@ public class MovementTraverse extends Movement {
                 } else {
                     state.setTarget(new MovementState.MovementTarget(backToFace, true));
                 }
-                if (ctx.isLookingAt(goalLook)) {
+                if (baritone instanceof Baritone serverBaritone
+                        && serverBaritone.getFakeInteractionController()
+                        .canReach(dest.below())) {
                     return state.setInput(Input.CLICK_RIGHT, true); // wait to right click until we are able to place
                 }
                 // Out.log("Trying to look at " + goalLook + ", actually looking at" + Baritone.whatAreYouLookingAt());

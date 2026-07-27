@@ -19,6 +19,7 @@ package baritone.pathing.movement;
 
 import baritone.Baritone;
 import baritone.api.IBaritone;
+import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.movement.ActionCosts;
 import baritone.pathing.precompute.PrecomputedData;
 import baritone.utils.BlockStateInterface;
@@ -65,6 +66,8 @@ public class CalculationContext {
     protected final double placeBlockCost; // protected because you should call the function instead
     public final boolean allowBreak;
     public final boolean blockModificationForbidden;
+    private final BlockPos cleanMin;
+    private final BlockPos cleanMax;
     public final List<Block> allowBreakAnyway;
     public final boolean allowParkour;
     public final boolean allowParkourPlace;
@@ -86,16 +89,24 @@ public class CalculationContext {
     public final double walkOnWaterOnePenalty;
     public final boolean allowWalkOnMagmaBlocks;
     public final BetterWorldBorder worldBorder;
+    private final Goal pathGoal;
 
     public final PrecomputedData precomputedData;
 
     public CalculationContext(IBaritone baritone) {
-        this(baritone, false);
+        this(baritone, false, null);
     }
 
     public CalculationContext(IBaritone baritone, boolean forUseOnAnotherThread) {
+        this(baritone, forUseOnAnotherThread, null);
+    }
+
+    public CalculationContext(IBaritone baritone,
+                              boolean forUseOnAnotherThread,
+                              Goal pathGoal) {
         this.precomputedData = new PrecomputedData();
         this.safeForThreadedUse = forUseOnAnotherThread;
+        this.pathGoal = pathGoal;
         this.baritone = baritone;
         ServerPlayer player = baritone.getPlayerContext().player();
         this.world = baritone.getPlayerContext().world();
@@ -107,6 +118,16 @@ public class CalculationContext {
         boolean collectOnly = baritone instanceof Baritone serverBaritone
                 && serverBaritone.usesCollectItemCostModel();
         this.blockModificationForbidden = collectOnly;
+        if (baritone instanceof Baritone serverBaritone
+                && serverBaritone.usesCleanCostModel()) {
+            this.cleanMin = serverBaritone.getCleanProcess()
+                    .selectionMin();
+            this.cleanMax = serverBaritone.getCleanProcess()
+                    .selectionMax();
+        } else {
+            this.cleanMin = null;
+            this.cleanMax = null;
+        }
         this.hasThrowaway = !collectOnly && Baritone.settings().allowPlace.value
                 && baritone.getInventoryController().hasGenericThrowaway();
         this.hasWaterBucket = !collectOnly
@@ -224,6 +245,14 @@ public class CalculationContext {
     }
 
     public double breakCostMultiplierAt(int x, int y, int z, BlockState current) {
+        if (cleanMin != null && (x < cleanMin.getX()
+                || x > cleanMax.getX()
+                || y < cleanMin.getY()
+                || y > cleanMax.getY()
+                || z < cleanMin.getZ()
+                || z > cleanMax.getZ())) {
+            return COST_INF;
+        }
         if (!allowBreak && !allowBreakAnyway.contains(current.getBlock())) {
             return COST_INF;
         }
@@ -236,6 +265,25 @@ public class CalculationContext {
     public double placeBucketCost() {
         if (blockModificationForbidden) return COST_INF;
         return placeBlockCost; // shrug
+    }
+
+    /**
+     * Prefer a vertical pillar when going up is the only locally useful
+     * direction according to the active goal. This covers an exact goal above
+     * the player as well as GoalYLevel and composite mining goals.
+     */
+    public boolean shouldPreferPillarAt(int x, int y, int z) {
+        if (pathGoal == null || blockModificationForbidden
+                || !hasThrowaway) return false;
+        double here = pathGoal.heuristic(x, y, z);
+        double above = pathGoal.heuristic(x, y + 1, z);
+        if (!(above < here)) return false;
+        double bestHorizontal = Math.min(
+                Math.min(pathGoal.heuristic(x + 1, y, z),
+                        pathGoal.heuristic(x - 1, y, z)),
+                Math.min(pathGoal.heuristic(x, y, z + 1),
+                        pathGoal.heuristic(x, y, z - 1)));
+        return bestHorizontal >= here;
     }
 
     public boolean isPossiblyProtected(int x, int y, int z) {

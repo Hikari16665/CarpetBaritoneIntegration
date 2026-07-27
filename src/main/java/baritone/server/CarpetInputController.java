@@ -13,8 +13,6 @@ import baritone.pathing.movement.MovementState;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 import baritone.utils.ToolSet;
 import baritone.Baritone;
 import baritone.cache.ServerWorldCache;
@@ -91,17 +89,15 @@ public final class CarpetInputController implements IInputOverrideHandler {
         }
 
         applyAction(Input.JUMP, EntityPlayerActionPack.ActionType.JUMP);
-        if (blockBreakTarget != null && isInputForcedDown(Input.CLICK_LEFT)) {
-            stopCarpetAttack();
-            tickServerBlockBreak();
-        } else {
-            resetServerBlockBreak();
-            applyAction(Input.CLICK_LEFT, EntityPlayerActionPack.ActionType.ATTACK);
-            if (!isInputForcedDown(Input.CLICK_LEFT)) {
-                blockBreakTarget = null;
-            }
-        }
-        applyAction(Input.CLICK_RIGHT, EntityPlayerActionPack.ActionType.USE);
+        /*
+         * All block/item interactions are server-authoritative fake
+         * interactions. Never forward attack/use to Carpet's real action
+         * pack, even if an upstream movement still raises a legacy key.
+         */
+        resetServerBlockBreak();
+        stopCarpetAttack();
+        stopCarpetUse();
+        blockBreakTarget = null;
     }
 
     @Override
@@ -120,16 +116,6 @@ public final class CarpetInputController implements IInputOverrideHandler {
         if (shouldRun == wasRunning) {
             return;
         }
-        if (shouldRun && actionType == EntityPlayerActionPack.ActionType.USE
-                && Baritone.settings().repackOnAnyBlockChange.value
-                && player.level() instanceof ServerLevel level) {
-            HitResult hit = player.pick(6.0D, 0.0F, false);
-            BlockPos affected = hit instanceof BlockHitResult blockHit
-                    ? blockHit.getBlockPos() : player.blockPosition();
-            ServerWorldCache.get(level).invalidateChunk(
-                    affected.getX() >> 4, affected.getZ() >> 4);
-        }
-
         actionPack.start(
                 actionType,
                 shouldRun ? EntityPlayerActionPack.Action.continuous() : null
@@ -141,6 +127,13 @@ public final class CarpetInputController implements IInputOverrideHandler {
         if (applied.getOrDefault(Input.CLICK_LEFT, false)) {
             actionPack.start(EntityPlayerActionPack.ActionType.ATTACK, null);
             applied.put(Input.CLICK_LEFT, false);
+        }
+    }
+
+    private void stopCarpetUse() {
+        if (applied.getOrDefault(Input.CLICK_RIGHT, false)) {
+            actionPack.start(EntityPlayerActionPack.ActionType.USE, null);
+            applied.put(Input.CLICK_RIGHT, false);
         }
     }
 

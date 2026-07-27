@@ -44,7 +44,22 @@ public final class PathingControlManager implements IPathingControlManager {
         inControlLastTick = inControlThisTick;
         inControlThisTick = null;
         command = executeProcesses(calcFailed, safeToCancel);
-        if (command != null) apply(command);
+        if (command == null) {
+            // No process owns the old segment anymore. Match upstream's
+            // cancelSegmentIfSafe + clear goal behavior.
+            baritone.pausePath();
+            baritone.setActiveGoal(null);
+            return;
+        }
+        if (!Objects.equals(inControlThisTick, inControlLastTick)
+                && command.commandType != PathingCommandType.REQUEST_PAUSE
+                && inControlLastTick != null
+                && !inControlLastTick.isTemporary()) {
+            // Prevent a newly selected process from inheriting an in-flight
+            // calculation or segment belonging to the previous owner.
+            baritone.pausePath();
+        }
+        apply(command);
     }
 
     private PathingCommand executeProcesses(
@@ -99,8 +114,10 @@ public final class PathingControlManager implements IPathingControlManager {
             }
             case REVALIDATE_GOAL_AND_PATH -> {
                 if (goal != null) {
-                    boolean revalidate =
-                            baritone.shouldRevalidate(goal, false);
+                    boolean revalidate = !baritone.isPathing()
+                            || Baritone.settings()
+                                    .cancelOnGoalInvalidation.value
+                            && baritone.shouldRevalidate(goal, false);
                     baritone.setActiveGoal(goal);
                     if (revalidate) {
                         if (baritone.getPathExecutor() != null) {
@@ -134,6 +151,13 @@ public final class PathingControlManager implements IPathingControlManager {
         inControlThisTick = null;
         command = null;
         active.clear();
-        processes.forEach(IBaritoneProcess::onLostControl);
+        for (IBaritoneProcess process : processes) {
+            process.onLostControl();
+            if (process.isActive() && !process.isTemporary()) {
+                throw new IllegalStateException(
+                        process.displayName()
+                                + " stayed active after cancellation");
+            }
+        }
     }
 }

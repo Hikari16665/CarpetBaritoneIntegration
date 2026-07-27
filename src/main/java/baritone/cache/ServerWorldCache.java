@@ -125,6 +125,12 @@ public final class ServerWorldCache implements ICachedWorld {
         }
     }
 
+    public static ServerWorldCache ifPresent(ServerLevel world) {
+        synchronized (INSTANCES) {
+            return INSTANCES.get(world);
+        }
+    }
+
     public static void saveAll() {
         List<ServerWorldCache> caches;
         synchronized (INSTANCES) {
@@ -198,6 +204,54 @@ public final class ServerWorldCache implements ICachedWorld {
         Set<Block> tracked = trackedBlocks();
         observedChunks.put(key, world.getGameTime());
         PACKER.execute(() -> packAndPublish(key, exact, tracked));
+    }
+
+    /**
+     * Immediately publishes a copy-on-write exact snapshot update while
+     * deferring compact repacking to the shared one-chunk maintenance budget.
+     */
+    public synchronized void updateBlock(
+            BlockPos pos, BlockState state, LevelChunk chunk) {
+        long key = chunk.getPos().toLong();
+        long revision = ++snapshotRevision;
+        ExactChunkSnapshot previous = exactSnapshots.get(key);
+        ExactChunkSnapshot updated = previous == null
+                ? ExactChunkSnapshot.copyOf(chunk, revision)
+                : previous.withBlock(pos, state, revision);
+        if (updated == null) {
+            updated = ExactChunkSnapshot.copyOf(chunk, revision);
+        }
+        exactSnapshots.put(key, updated);
+        observedChunks.put(key, world.getGameTime());
+        updateIndexAt(key, pos, state.getBlock());
+        pendingCaptures.add(key);
+    }
+
+    private void updateIndexAt(long key, BlockPos pos, Block block) {
+        Map<Block, List<BlockPos>> index = chunkIndexes.computeIfAbsent(
+                key, ignored -> new HashMap<>());
+        List<Block> empty = new ArrayList<>();
+        index.forEach((indexedBlock, positions) -> {
+            if (positions.remove(pos)) {
+                Set<BlockPos> global = indexedBlocks.get(indexedBlock);
+                if (global != null) {
+                    global.remove(pos);
+                    if (global.isEmpty()) indexedBlocks.remove(indexedBlock);
+                }
+            }
+            if (positions.isEmpty()) empty.add(indexedBlock);
+        });
+        empty.forEach(index::remove);
+        if (!trackedBlocks().contains(block)) return;
+        List<BlockPos> positions = index.computeIfAbsent(
+                block, ignored -> new ArrayList<>());
+        if (positions.size()
+                < MAX_INDEXED_POSITIONS_PER_BLOCK_PER_CHUNK) {
+            BlockPos immutable = pos.immutable();
+            positions.add(immutable);
+            indexedBlocks.computeIfAbsent(
+                    block, ignored -> new HashSet<>()).add(immutable);
+        }
     }
 
     private void packAndPublish(

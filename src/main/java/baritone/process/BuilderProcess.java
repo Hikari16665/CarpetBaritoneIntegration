@@ -26,18 +26,26 @@ import net.minecraft.core.Vec3i;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Pure-server schematic builder process. */
 public final class BuilderProcess implements IBuilderProcess {
+    private static final int SCHEMATIC_SCAN_BUDGET_PER_TICK = 8192;
+
+    private enum ScanResult { FOUND, PENDING, COMPLETE }
+
     private final Baritone baritone;
     private String name;
     private ISchematic schematic;
@@ -47,6 +55,10 @@ public final class BuilderProcess implements IBuilderProcess {
     private BlockState desired;
     private List<BlockState> approxPlaceable = Collections.emptyList();
     private int layer;
+    private int scanCursor;
+    private int tickCount;
+    private boolean missingInScan;
+    private final Map<BlockPos, Integer> failedUntil = new HashMap<>();
 
     public BuilderProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -100,18 +112,30 @@ public final class BuilderProcess implements IBuilderProcess {
         this.paused = false;
         this.target = null;
         this.layer = Math.max(0, Baritone.settings().startAtLayer.value);
+        this.scanCursor = 0;
+        this.tickCount = 0;
+        this.missingInScan = false;
+        this.failedUntil.clear();
         configured.reset();
     }
 
     public void serverTick() {
+        tickCount++;
+        failedUntil.entrySet().removeIf(
+                entry -> entry.getValue() <= tickCount);
         if (!isActive() || paused || baritone.getPathExecutor() != null) return;
         updateApproxPlaceable();
-        if (target == null || positionComplete(target, desired)) {
-            findNextIncorrect();
+        if (target != null && positionComplete(target, desired)) {
+            target = null;
+            desired = null;
         }
         if (target == null) {
-            onLostControl();
-            return;
+            ScanResult scan = findNextIncorrect();
+            if (scan == ScanResult.PENDING) return;
+            if (scan == ScanResult.COMPLETE) {
+                onLostControl();
+                return;
+            }
         }
         BlockState current = baritone.getPlayerContext().world().getBlockState(target);
         // Matching only the block type silently accepts wrong facing, slab half,
@@ -119,7 +143,10 @@ public final class BuilderProcess implements IBuilderProcess {
         // state as incorrect and replaces it.
         boolean mustBreak = !current.isAir() && !sameEnough(current, desired);
         if (!withinReach(target)) {
-            baritone.pathToGoal(new GoalGetToBlock(target), 2_000L, 8_000L);
+            if (!baritone.pathToGoal(
+                    new GoalGetToBlock(target), 2_000L, 8_000L)) {
+                deferFailedTarget(target);
+            }
             return;
         }
         if (mustBreak) {
@@ -131,37 +158,62 @@ public final class BuilderProcess implements IBuilderProcess {
         }
     }
 
-    private void findNextIncorrect() {
+    private ScanResult findNextIncorrect() {
         target = null;
         desired = null;
         while (isActive()) {
             int minY = currentMinLayer();
             int maxY = currentMaxLayer();
-            scan:
-            for (int y = minY; y <= maxY; y++) {
-            for (int z = 0; z < schematic.lengthZ(); z++) {
-                for (int x = 0; x < schematic.widthX(); x++) {
-                    BlockPos worldPos = origin.offset(x, y, z);
-                    BlockState current = baritone.getPlayerContext().world().getBlockState(worldPos);
-                    if (!schematic.inSchematic(x, y, z, current)) continue;
-                    BlockState wanted = schematic.desiredState(
-                            x, y, z, current, approxPlaceable);
-                    if (wanted != null && !sameEnough(current, wanted)) {
-                        target = worldPos;
-                        desired = wanted;
-                        break scan;
+            int width = schematic.widthX();
+            int length = schematic.lengthZ();
+            int layerHeight = maxY - minY + 1;
+            int layerVolume = width * length * layerHeight;
+            int checked = 0;
+            while (scanCursor < layerVolume
+                    && checked++ < SCHEMATIC_SCAN_BUDGET_PER_TICK) {
+                int index = scanCursor++;
+                int x = index % width;
+                int yz = index / width;
+                int z = yz % length;
+                int y = minY + yz / length;
+                BlockPos worldPos = origin.offset(x, y, z);
+                if (failedUntil.containsKey(worldPos)) continue;
+                BlockState current = baritone.getPlayerContext().world()
+                        .getBlockState(worldPos);
+                if (!schematic.inSchematic(x, y, z, current)) continue;
+                BlockState wanted = schematic.desiredState(
+                        x, y, z, current, approxPlaceable);
+                if (wanted != null && !sameEnough(current, wanted)) {
+                    // Do not destroy a wrong block until its replacement is
+                    // actually available. Upstream's itemVerify path follows
+                    // the same rule and keeps scanning for actionable work.
+                    if (!wanted.isAir() && !canPlace(wanted)) {
+                        missingInScan = true;
+                        continue;
                     }
+                    target = worldPos;
+                    desired = wanted;
+                    return ScanResult.FOUND;
                 }
             }
-        }
-            if (target != null || !Baritone.settings().buildInLayers.value) {
-                return;
+            if (scanCursor < layerVolume) return ScanResult.PENDING;
+            scanCursor = 0;
+            if (missingInScan
+                    && !Baritone.settings().skipFailedLayers.value) {
+                missingInScan = false;
+                paused = true;
+                return ScanResult.PENDING;
+            }
+            missingInScan = false;
+            if (!Baritone.settings().buildInLayers.value) {
+                return ScanResult.COMPLETE;
             }
             layer++;
             if (layer * effectiveLayerHeight() >= schematic.heightY()) {
-                return;
+                return ScanResult.COMPLETE;
             }
         }
+        return ScanResult.COMPLETE;
     }
 
     private int effectiveLayerHeight() {
@@ -192,49 +244,102 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private static boolean sameEnough(BlockState current, BlockState wanted) {
-        return current.equals(wanted)
-                || (current.isAir() && wanted.isAir());
+        if (current.equals(wanted)
+                || current.isAir() && wanted.isAir()) {
+            return true;
+        }
+        if (current.getBlock() instanceof LiquidBlock
+                && Baritone.settings().okIfWater.value) {
+            return true;
+        }
+        if (current.isAir() && Baritone.settings().okIfAir.value
+                .contains(wanted.getBlock())) {
+            return true;
+        }
+        if (wanted.isAir() && Baritone.settings().buildIgnoreBlocks.value
+                .contains(current.getBlock())) {
+            return true;
+        }
+        if (!current.isAir()
+                && Baritone.settings().buildIgnoreExisting.value) {
+            return true;
+        }
+        if (Baritone.settings().buildValidSubstitutes.value
+                .getOrDefault(wanted.getBlock(), Collections.emptyList())
+                .contains(current.getBlock())) {
+            return true;
+        }
+        if (current.getBlock() != wanted.getBlock()
+                || !current.getProperties()
+                        .equals(wanted.getProperties())) {
+            return false;
+        }
+        boolean ignoreDirection =
+                Baritone.settings().buildIgnoreDirection.value;
+        List<String> ignored =
+                Baritone.settings().buildIgnoreProperties.value;
+        for (Property<?> property : current.getProperties()) {
+            if (ignored.contains(property.getName())
+                    || ignoreDirection
+                    && isOrientationProperty(property.getName())) {
+                continue;
+            }
+            if (!current.getValue(property)
+                    .equals(wanted.getValue(property))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isOrientationProperty(String name) {
+        return name.equals("axis") || name.equals("facing")
+                || name.equals("half") || name.equals("shape")
+                || name.equals("north") || name.equals("east")
+                || name.equals("south") || name.equals("west")
+                || name.equals("up") || name.equals("open");
     }
 
     private void breakTarget(BlockState current) {
-        Optional<Rotation> rotation = RotationUtils.reachable(
-                baritone.getPlayerContext(), target, RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE);
-        if (rotation.isEmpty()) {
+        if (!baritone.getFakeInteractionController().canReach(target)) {
             baritone.pathToGoal(new GoalGetToBlock(target), 2_000L, 8_000L);
             return;
         }
-        MovementHelper.switchToBestToolFor(
-                baritone.getPlayerContext(),
-                BlockStateInterface.get(baritone.getPlayerContext(), target));
-        baritone.getInputController().setBlockBreakTarget(target);
-        baritone.getLookBehavior().updateTarget(rotation.get(), true);
-        baritone.getInputOverrideHandler().clearAllKeys();
-        baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, true);
-        baritone.getInputController().tick();
+        baritone.getFakeInteractionController().breakBlock(target);
     }
 
     private void placeTarget() {
         if (!(desired.getBlock().asItem() instanceof BlockItem)
                 || !desired.canSurvive(baritone.getPlayerContext().world(), target)
                 || !baritone.getInventoryController().selectBlock(desired.getBlock())) {
-            paused = true;
+            missingInScan = true;
+            target = null;
+            desired = null;
             return;
         }
-        for (Direction direction : Direction.values()) {
-            BlockPos support = target.relative(direction);
-            if (baritone.getPlayerContext().world().getBlockState(support).isAir()) continue;
-            Optional<Rotation> rotation = RotationUtils.reachable(
-                    baritone.getPlayerContext(), support,
-                    RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE);
-            if (rotation.isPresent()) {
-                baritone.getLookBehavior().updateTarget(rotation.get(), true);
-                baritone.getInputOverrideHandler().clearAllKeys();
-                baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
-                baritone.getInputController().tick();
-                return;
-            }
+        if (baritone.getFakeInteractionController()
+                .placeSelectedBlockMatching(
+                        target, desired,
+                        preview -> sameEnough(preview, desired))) {
+            return;
         }
-        baritone.pathToGoal(new GoalGetToBlock(target), 2_000L, 8_000L);
+        if (!baritone.pathToGoal(
+                new GoalGetToBlock(target), 2_000L, 8_000L)) {
+            deferFailedTarget(target);
+        }
+    }
+
+    private boolean canPlace(BlockState wanted) {
+        if (!(wanted.getBlock().asItem() instanceof BlockItem)) return false;
+        return baritone.getInventoryController().hasAccessibleItem(
+                stack -> stack.getItem() instanceof BlockItem blockItem
+                        && blockItem.getBlock() == wanted.getBlock());
+    }
+
+    private void deferFailedTarget(BlockPos failed) {
+        failedUntil.put(failed.immutable(), tickCount + 100);
+        target = null;
+        desired = null;
     }
 
     private boolean withinReach(BlockPos pos) {
@@ -334,6 +439,9 @@ public final class BuilderProcess implements IBuilderProcess {
     @Override public boolean isTemporary() { return false; }
     @Override public void onLostControl() {
         schematic = null; target = null; desired = null; name = null;
+        scanCursor = 0;
+        missingInScan = false;
+        failedUntil.clear();
     }
     @Override public String displayName0() { return "Building " + name; }
 

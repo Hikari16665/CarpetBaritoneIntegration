@@ -120,6 +120,27 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
                 moves.apply(calcContext, currentNode.x, currentNode.y, currentNode.z, res);
                 numMovementsConsidered++;
                 double actionCost = res.cost;
+                if (moves == Moves.PILLAR
+                        && calcContext.shouldPreferPillarAt(
+                        currentNode.x, currentNode.y, currentNode.z)) {
+                    /*
+                     * Keep the complete upstream feasibility calculation, but
+                     * make a valid straight-up pillar decisively cheaper than
+                     * wandering away to build a staircase.
+                     */
+                    actionCost *= 0.35D;
+                }
+                if (actionCost < ActionCosts.COST_INF
+                        && calcContext.blockModificationForbidden
+                        && touchesWall(res.x, res.y, res.z)) {
+                    /*
+                     * For collection/give paths we cannot tunnel through a
+                     * barrier. Slightly favor the traversable boundary so the
+                     * open set follows a long wall toward its opening instead
+                     * of repeatedly expanding the open side of the room.
+                     */
+                    actionCost *= 0.90D;
+                }
                 if (actionCost >= ActionCosts.COST_INF) {
                     continue;
                 }
@@ -199,5 +220,21 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
             logDebug("Took " + (System.currentTimeMillis() - startTime) + "ms, " + numMovementsConsidered + " movements considered");
         }
         return result;
+    }
+
+    private boolean touchesWall(int x, int y, int z) {
+        return blockedAt(x + 1, y, z)
+                || blockedAt(x - 1, y, z)
+                || blockedAt(x, y, z + 1)
+                || blockedAt(x, y, z - 1);
+    }
+
+    private boolean blockedAt(int x, int y, int z) {
+        BetterBlockPos feet = new BetterBlockPos(x, y, z);
+        BetterBlockPos head = feet.above();
+        return !calcContext.get(feet)
+                .getCollisionShape(calcContext.world, feet).isEmpty()
+                || !calcContext.get(head)
+                .getCollisionShape(calcContext.world, head).isEmpty();
     }
 }

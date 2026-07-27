@@ -12,13 +12,16 @@
   "entrypoints": {
     "main": [
       "me.nuoyuan.carpetbaritoneintegration.Carpetbaritoneintegration"
+    ],
+    "client": [
+      "me.nuoyuan.carpetbaritoneintegration.client.CarpetBaritoneIntegrationClient"
     ]
   },
   "mixins": [
     "carpetbaritoneintegration.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=${loader_version}",
+    "fabricloader": ">=0.17.2",
     "fabric-api": "*",
     "minecraft": "${minecraft_version}"
   }

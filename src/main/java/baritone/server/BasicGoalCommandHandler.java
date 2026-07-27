@@ -5,6 +5,8 @@
 package baritone.server;
 
 import baritone.Baritone;
+import baritone.api.BaritoneAPI;
+import baritone.api.Settings;
 import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalXZ;
@@ -32,7 +34,14 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.Item;
 
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /** Parses the small server-safe command set accepted through private messages. */
 public final class BasicGoalCommandHandler {
@@ -96,6 +105,7 @@ public final class BasicGoalCommandHandler {
                             + "place <方块> <x> <y> <z>, runaway <距离>, avoid <on|off>, "
                             + "collectItem <物品> <数量> <玩家>, follow <玩家>, "
                             + "giveAll <玩家>, trash <list|add|remove>, "
+                            + "pos1, pos2, clean, areamine, set/settings, "
                             + "stop, status, help");
             return;
         }
@@ -122,6 +132,8 @@ public final class BasicGoalCommandHandler {
                 startGoal(sender, fakePlayer, baritone, new GoalYLevel(y), "高度 " + y);
             }
             case "mine" -> startMine(sender, fakePlayer, baritone, args);
+            case "areamine" -> startAreaMine(
+                    sender, fakePlayer, baritone, args);
             case "trash", "trashlist" ->
                     manageTrashList(sender, fakePlayer, args);
             case "collectitem", "collect_item", "collect" ->
@@ -140,6 +152,14 @@ public final class BasicGoalCommandHandler {
             case "elytra", "fly" -> startElytra(sender, fakePlayer, baritone, args);
             case "runaway", "run_away" -> startRunAway(sender, fakePlayer, baritone, args);
             case "avoid", "avoidance" -> setAvoidance(sender, fakePlayer, args);
+            case "set", "setting", "settings" ->
+                    manageSettings(sender, fakePlayer, baritone, args);
+            case "pos1" -> setSelectionCorner(
+                    sender, fakePlayer, baritone, args, true);
+            case "pos2" -> setSelectionCorner(
+                    sender, fakePlayer, baritone, args, false);
+            case "clean" -> startClean(
+                    sender, fakePlayer, baritone, args);
             case "cache" -> manageCache(sender, fakePlayer, baritone, args);
             case "stop", "cancel" -> {
                 baritone.cancelAll();
@@ -209,6 +229,43 @@ public final class BasicGoalCommandHandler {
                 .collect(java.util.stream.Collectors.joining(", "));
         reply(fakePlayer, sender, "开始搜索并挖掘 [" + names
                 + "]，总数量 " + count);
+    }
+
+    private static void startAreaMine(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "用法: areamine <block_id...>");
+        }
+        baritone.api.selection.ISelection selection =
+                baritone.getSelectionManager().getOnlySelection();
+        if (selection == null) {
+            throw new IllegalArgumentException(
+                    "请先使用 pos1 和 pos2 设置立体选区");
+        }
+        List<Block> targets = new ArrayList<>();
+        for (int index = 1; index < args.length; index++) {
+            for (String id : args[index].split(",")) {
+                if (!id.isBlank()) targets.add(block(id));
+            }
+        }
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "至少提供一个目标方块 ID");
+        }
+        baritone.getMineProcess().mineAreaWithFeedback(
+                selection,
+                new BlockOptionalMetaLookup(
+                        targets.toArray(Block[]::new)),
+                message -> reply(fakePlayer, sender, message));
+        String names = targets.stream()
+                .map(BuiltInRegistries.BLOCK::getKey)
+                .map(ResourceLocation::toString)
+                .collect(java.util.stream.Collectors.joining(", "));
+        reply(fakePlayer, sender, "开始持续挖掘选区内的 ["
+                + names + "]；目标暂时为空时会等待，"
+                + "只有 stop 才会结束");
     }
 
     private static void manageTrashList(
@@ -523,6 +580,293 @@ public final class BasicGoalCommandHandler {
             default -> throw new IllegalArgumentException(
                     "用法: cbi cache <status|repack [半径]|save|reload>");
         }
+    }
+
+    private static void manageSettings(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        Settings settings = BaritoneAPI.getSettings();
+        List<Field> fields = settingFields();
+        if (args.length == 1
+                || args[1].equalsIgnoreCase("list")
+                || args[1].equalsIgnoreCase("all")
+                || args[1].equalsIgnoreCase("modified")) {
+            boolean modified = args.length > 1
+                    && args[1].equalsIgnoreCase("modified");
+            int page = 1;
+            String filter = "";
+            int firstExtra = args.length == 1 ? 1 : 2;
+            for (int i = firstExtra; i < args.length; i++) {
+                try {
+                    page = Math.max(1, Integer.parseInt(args[i]));
+                } catch (NumberFormatException ignored) {
+                    filter = args[i].toLowerCase(Locale.ROOT);
+                }
+            }
+            final String nameFilter = filter;
+            List<Field> shown = fields.stream()
+                    .filter(field -> field.getName().toLowerCase(Locale.ROOT)
+                            .contains(nameFilter))
+                    .filter(field -> !modified
+                            || isModified(readSetting(settings, field)))
+                    .toList();
+            int pageSize = 8;
+            int pages = Math.max(1,
+                    (shown.size() + pageSize - 1) / pageSize);
+            page = Math.min(page, pages);
+            int from = Math.min(shown.size(), (page - 1) * pageSize);
+            int to = Math.min(shown.size(), from + pageSize);
+            reply(fakePlayer, sender, "设置 "
+                    + page + "/" + pages + "（共 " + shown.size()
+                    + " 项，设置为全服共享）");
+            for (Field field : shown.subList(from, to)) {
+                Settings.Setting<?> setting = readSetting(settings, field);
+                reply(fakePlayer, sender, field.getName() + " = "
+                        + settingValue(setting.value));
+            }
+            return;
+        }
+
+        String operation = args[1].toLowerCase(Locale.ROOT);
+        if (operation.equals("reset")) {
+            if (args.length != 3) {
+                throw new IllegalArgumentException(
+                        "用法: set reset <设置名|all>");
+            }
+            if (args[2].equalsIgnoreCase("all")) {
+                fields.forEach(field ->
+                        readSetting(settings, field).reset());
+                recalculateAfterSettingChange(baritone);
+                reply(fakePlayer, sender, "已将全部设置恢复默认值");
+                return;
+            }
+            Field field = findSetting(fields, args[2]);
+            Settings.Setting<?> setting = readSetting(settings, field);
+            setting.reset();
+            recalculateAfterSettingChange(baritone);
+            reply(fakePlayer, sender, field.getName() + " 已恢复为 "
+                    + settingValue(setting.value));
+            return;
+        }
+
+        if (operation.equals("toggle")) {
+            if (args.length != 3) {
+                throw new IllegalArgumentException(
+                        "用法: set toggle <布尔设置名>");
+            }
+            Field field = findSetting(fields, args[2]);
+            Settings.Setting<?> setting = readSetting(settings, field);
+            if (!(setting.value instanceof Boolean current)) {
+                throw new IllegalArgumentException(
+                        field.getName() + " 不是布尔设置");
+            }
+            setSettingValue(setting, !current);
+            recalculateAfterSettingChange(baritone);
+            reply(fakePlayer, sender, field.getName() + " = "
+                    + setting.value);
+            return;
+        }
+
+        Field field = findSetting(fields, args[1]);
+        Settings.Setting<?> setting = readSetting(settings, field);
+        if (args.length == 2) {
+            reply(fakePlayer, sender, field.getName() + " = "
+                    + settingValue(setting.value) + "（默认 "
+                    + settingValue(setting.defaultValue) + "）");
+            return;
+        }
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "设置值不能包含空格；列表请使用逗号分隔");
+        }
+        Object parsed = parseSettingValue(
+                field, setting.defaultValue, args[2]);
+        setSettingValue(setting, parsed);
+        recalculateAfterSettingChange(baritone);
+        reply(fakePlayer, sender, field.getName() + " = "
+                + settingValue(setting.value));
+    }
+
+    private static void setSelectionCorner(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args, boolean first) {
+        if (args.length != 1 && args.length != 4) {
+            throw new IllegalArgumentException(
+                    "用法: " + (first ? "pos1" : "pos2")
+                            + " [x y z]");
+        }
+        BlockPos pos = args.length == 1
+                ? sender.blockPosition()
+                : new BlockPos(
+                        coordinate(args[1], "x"),
+                        coordinate(args[2], "y"),
+                        coordinate(args[3], "z"));
+        if (first) {
+            baritone.setSelectionPos1(pos);
+        } else {
+            baritone.setSelectionPos2(pos);
+        }
+        reply(fakePlayer, sender,
+                (first ? "pos1" : "pos2") + " = "
+                        + pos.getX() + " " + pos.getY() + " "
+                        + pos.getZ());
+        if (baritone.getSelectionPos1() != null
+                && baritone.getSelectionPos2() != null) {
+            BetterBlockPos a = baritone.getSelectionPos1();
+            BetterBlockPos b = baritone.getSelectionPos2();
+            long volume = (long) (Math.abs(a.x - b.x) + 1)
+                    * (Math.abs(a.y - b.y) + 1)
+                    * (Math.abs(a.z - b.z) + 1);
+            reply(fakePlayer, sender, "立体选区已就绪，共 "
+                    + volume + " 个方块");
+        }
+    }
+
+    private static void startClean(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            Baritone baritone, String[] args) {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("用法: clean");
+        }
+        baritone.api.selection.ISelection selection =
+                baritone.getSelectionManager().getOnlySelection();
+        if (selection == null) {
+            throw new IllegalArgumentException(
+                    "请先使用 pos1 和 pos2 设置立体选区");
+        }
+        baritone.cancelAll();
+        baritone.getCleanProcess().clean(selection,
+                message -> reply(fakePlayer, sender, message));
+        reply(fakePlayer, sender,
+                "开始从 Y=" + selection.max().y
+                        + " 向下清理到 Y=" + selection.min().y
+                        + "；流体会先填实，寻路不会进入流体");
+    }
+
+    private static List<Field> settingFields() {
+        return java.util.Arrays.stream(Settings.class.getFields())
+                .filter(field -> field.getType() == Settings.Setting.class)
+                .sorted(Comparator.comparing(Field::getName,
+                        String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
+    private static Field findSetting(List<Field> fields, String name) {
+        return fields.stream()
+                .filter(field -> field.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "未知设置: " + name
+                                + "；使用 settings list [筛选词] [页码]"));
+    }
+
+    private static Settings.Setting<?> readSetting(
+            Settings settings, Field field) {
+        try {
+            return (Settings.Setting<?>) field.get(settings);
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static boolean isModified(Settings.Setting<?> setting) {
+        return !java.util.Objects.equals(
+                setting.value, setting.defaultValue);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void setSettingValue(
+            Settings.Setting setting, Object value) {
+        setting.value = value;
+    }
+
+    private static Object parseSettingValue(
+            Field field, Object defaultValue, String text) {
+        try {
+            if (defaultValue instanceof Boolean) {
+                if (text.equalsIgnoreCase("true")
+                        || text.equalsIgnoreCase("on")) return true;
+                if (text.equalsIgnoreCase("false")
+                        || text.equalsIgnoreCase("off")) return false;
+                throw new IllegalArgumentException(
+                        "布尔值必须是 true/false 或 on/off");
+            }
+            if (defaultValue instanceof Integer) return Integer.parseInt(text);
+            if (defaultValue instanceof Long) return Long.parseLong(text);
+            if (defaultValue instanceof Float) return Float.parseFloat(text);
+            if (defaultValue instanceof Double) return Double.parseDouble(text);
+            if (defaultValue instanceof String) return text;
+            if (defaultValue instanceof Enum<?> value) {
+                return parseEnum(value.getDeclaringClass(), text);
+            }
+            if (defaultValue instanceof List<?>) {
+                return parseSettingList(field, text);
+            }
+            if (defaultValue instanceof Map<?, ?>) {
+                throw new IllegalArgumentException(
+                        field.getName() + " 暂不支持通过聊天编辑映射");
+            }
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(
+                    field.getName() + " 的数字格式无效: " + text);
+        }
+        throw new IllegalArgumentException(
+                field.getName() + " 的类型暂不支持聊天设置");
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static Object parseEnum(
+            Class<? extends Enum> type, String text) {
+        for (Object constant : type.getEnumConstants()) {
+            if (((Enum<?>) constant).name().equalsIgnoreCase(text)) {
+                return constant;
+            }
+        }
+        throw new IllegalArgumentException("无效枚举值: " + text);
+    }
+
+    private static List<?> parseSettingList(Field field, String text) {
+        if (text.equalsIgnoreCase("none")
+                || text.equals("[]")) return new ArrayList<>();
+        Type generic = field.getGenericType();
+        if (!(generic instanceof ParameterizedType settingType)
+                || !(settingType.getActualTypeArguments()[0]
+                instanceof ParameterizedType valueType)) {
+            throw new IllegalArgumentException("无法识别列表元素类型");
+        }
+        Type element = valueType.getActualTypeArguments()[0];
+        List<Object> values = new ArrayList<>();
+        for (String token : text.split(",")) {
+            if (element == Block.class) {
+                values.add(block(token));
+            } else if (element == Item.class) {
+                values.add(item(token));
+            } else {
+                throw new IllegalArgumentException(
+                        field.getName() + " 的列表类型暂不支持");
+            }
+        }
+        return values;
+    }
+
+    private static String settingValue(Object value) {
+        if (value instanceof Block block) {
+            return BuiltInRegistries.BLOCK.getKey(block).toString();
+        }
+        if (value instanceof Item item) {
+            return BuiltInRegistries.ITEM.getKey(item).toString();
+        }
+        if (value instanceof List<?> list) {
+            if (list.isEmpty()) return "none";
+            return list.stream().map(BasicGoalCommandHandler::settingValue)
+                    .collect(java.util.stream.Collectors.joining(","));
+        }
+        return String.valueOf(value);
+    }
+
+    private static void recalculateAfterSettingChange(Baritone baritone) {
+        Goal goal = baritone.getActiveGoal();
+        if (goal != null) baritone.recalculateForProcess(goal);
     }
 
     private static void startGoal(

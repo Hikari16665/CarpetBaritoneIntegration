@@ -40,4 +40,49 @@ public class CollectItemProcessTest {
         assertTrue(process.contains("没有找到目标物品"));
         assertTrue(process.contains("目标物品没有找全"));
     }
+
+    @Test
+    public void collectionUsesFreshRadialStateMachine() throws IOException {
+        String process = Files.readString(Path.of(
+                "src", "main", "java", "baritone", "process",
+                "CollectItemProcess.java"));
+        assertTrue(process.contains(
+                "SEARCHING, ACQUIRING, DELIVERING, RETURNING"));
+        assertTrue(process.contains(
+                "offsets.sort(Comparator.comparingInt("
+                        + "ChunkOffset::distanceSquared))"));
+        assertTrue(process.contains("searchOrigin.distSqr(pos)"));
+        assertTrue(process.contains("freshCandidate(pos)"));
+        assertTrue(process.contains("resumeAcquisitionAfterDelivery()"));
+        assertTrue(process.contains("sourcesExhausted = true"));
+        assertFalse(process.contains("List<StorageCandidate> candidates"));
+    }
+
+    @Test
+    public void deliveryDropsEveryRelatedItemWithoutAmountCap()
+            throws IOException {
+        String process = Files.readString(Path.of(
+                "src", "main", "java", "baritone", "process",
+                "CollectItemProcess.java"));
+        assertTrue(process.contains("Delivery is intentionally uncapped"));
+        assertTrue(process.contains("box, Integer.MAX_VALUE"));
+        assertTrue(process.contains("ItemStack dropped = stack.copy()"));
+        assertFalse(process.contains(
+                "Math.max(0, amount - deliveredAmount)"));
+    }
+
+    @Test
+    public void upwardGoalsPreferOriginalPillarMovement()
+            throws IOException {
+        String context = Files.readString(Path.of(
+                "src", "main", "java", "baritone", "pathing",
+                "movement", "CalculationContext.java"));
+        String search = Files.readString(Path.of(
+                "src", "main", "java", "baritone", "pathing",
+                "calc", "AStarPathFinder.java"));
+        assertTrue(context.contains("shouldPreferPillarAt"));
+        assertTrue(context.contains("bestHorizontal >= here"));
+        assertTrue(search.contains("moves == Moves.PILLAR"));
+        assertTrue(search.contains("actionCost *= 0.35D"));
+    }
 }

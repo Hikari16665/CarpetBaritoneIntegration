@@ -15,6 +15,8 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.item.component.ItemContainerContents;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Items;
 import baritone.utils.ToolSet;
 
 import java.util.Objects;
@@ -113,6 +115,31 @@ public final class ServerInventoryController {
             }
         }
         return result;
+    }
+
+    /** Performs the inventory swap used by upstream elytra safety logic. */
+    public boolean equipBestElytra(int minimumRemainingDurability) {
+        NonNullList<ItemStack> inventory =
+                player.getInventory().getNonEquipmentItems();
+        int bestSlot = -1;
+        int bestRemaining = minimumRemainingDurability;
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            ItemStack candidate = inventory.get(slot);
+            if (!candidate.is(Items.ELYTRA)) continue;
+            int remaining = candidate.getMaxDamage()
+                    - candidate.getDamageValue();
+            if (remaining > bestRemaining) {
+                bestRemaining = remaining;
+                bestSlot = slot;
+            }
+        }
+        if (bestSlot < 0) return false;
+        ItemStack equipped = player.getItemBySlot(EquipmentSlot.CHEST);
+        ItemStack replacement = inventory.get(bestSlot);
+        inventory.set(bestSlot, equipped);
+        player.setItemSlot(EquipmentSlot.CHEST, replacement);
+        player.inventoryMenu.broadcastChanges();
+        return true;
     }
 
     /**

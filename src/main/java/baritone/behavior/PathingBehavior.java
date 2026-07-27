@@ -28,7 +28,7 @@ public final class PathingBehavior implements IPathingBehavior {
     public final Baritone baritone;
     public final IPlayerContext ctx;
     private CalculationContext calculationContext;
-    private AbstractNodeCostSearch inProgress;
+    private IPathFinder inProgress;
 
     public PathingBehavior(Baritone baritone) {
         this.baritone = baritone;
@@ -45,11 +45,11 @@ public final class PathingBehavior implements IPathingBehavior {
     }
 
     @Override
-    public Optional<AbstractNodeCostSearch> getInProgress() {
+    public Optional<IPathFinder> getInProgress() {
         return Optional.ofNullable(inProgress);
     }
 
-    public void setInProgress(AbstractNodeCostSearch inProgress) {
+    public void setInProgress(IPathFinder inProgress) {
         this.inProgress = inProgress;
     }
 

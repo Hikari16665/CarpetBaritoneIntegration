@@ -4,7 +4,8 @@
   "package": "me.nuoyuan.carpetbaritoneintegration.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "MsgCommandMixin"
+    "MsgCommandMixin",
+    "LevelBlockChangeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -17,6 +17,7 @@
 
 package baritone.pathing.movement.movements;
 
+import baritone.Baritone;
 import baritone.api.IBaritone;
 import baritone.api.pathing.movement.MovementStatus;
 import baritone.api.utils.BetterBlockPos;
@@ -115,8 +116,9 @@ public class MovementFall extends Movement {
 
                 targetRotation = new Rotation(toDest.getYaw(), 90.0F);
 
-                if (ctx.isLookingAt(dest) || ctx.isLookingAt(dest.below())) {
-                    state.setInput(Input.CLICK_RIGHT, true);
+                if (baritone instanceof Baritone serverBaritone) {
+                    serverBaritone.getFakeInteractionController()
+                            .placeBucketFluid(dest);
                 }
             }
         }
@@ -130,7 +132,11 @@ public class MovementFall extends Movement {
                 if (Inventory.isHotbarSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_EMPTY))) {
                     ctx.player().getInventory().setSelectedSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_EMPTY));
                     if (ctx.player().getDeltaMovement().y >= 0) {
-                        return state.setInput(Input.CLICK_RIGHT, true);
+                        if (baritone instanceof Baritone serverBaritone) {
+                            serverBaritone.getFakeInteractionController()
+                                    .pickupBucketFluid(dest);
+                        }
+                        return state;
                     } else {
                         return state;
                     }

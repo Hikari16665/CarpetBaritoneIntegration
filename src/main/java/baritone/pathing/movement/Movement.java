@@ -126,12 +126,54 @@ public abstract class Movement implements IMovement, MovementHelper {
     public MovementStatus update() {
         ctx.player().getAbilities().flying = false;
         currentState = updateState(currentState);
+        if (baritone instanceof Baritone serverBaritone
+                && currentState.getInputStates().getOrDefault(
+                Input.CLICK_RIGHT, false)
+                && positionToPlace != null) {
+            serverBaritone.getFakeInteractionController()
+                    .placeSelectedBlock(positionToPlace);
+            currentState.setInput(Input.CLICK_RIGHT, false);
+        }
+        if (baritone instanceof Baritone serverBaritone
+                && currentState.getInputStates().getOrDefault(
+                Input.CLICK_LEFT, false)) {
+            boolean handled = false;
+            for (BetterBlockPos candidate : positionsToBreak) {
+                if (!MovementHelper.canWalkThrough(ctx, candidate)
+                        && serverBaritone.getFakeInteractionController()
+                        .canReach(candidate)) {
+                    serverBaritone.getFakeInteractionController()
+                            .breakBlock(candidate);
+                    currentState.setInput(Input.CLICK_LEFT, false);
+                    handled = true;
+                    break;
+                }
+            }
+            if (!handled && positionToPlace != null
+                    && !MovementHelper.canWalkThrough(
+                    ctx, positionToPlace)
+                    && serverBaritone.getFakeInteractionController()
+                    .canReach(positionToPlace)) {
+                serverBaritone.getFakeInteractionController()
+                        .breakBlock(positionToPlace);
+                currentState.setInput(Input.CLICK_LEFT, false);
+            }
+        }
         if (MovementHelper.isLiquid(ctx, ctx.playerFeet()) && ctx.player().position().y < dest.y + 0.6) {
             currentState.setInput(Input.JUMP, true);
         }
         if (ctx.player().isInWall()) {
-            ctx.getSelectedBlock().ifPresent(pos -> MovementHelper.switchToBestToolFor(ctx, BlockStateInterface.get(ctx, pos)));
-            currentState.setInput(Input.CLICK_LEFT, true);
+            if (baritone instanceof Baritone serverBaritone) {
+                BetterBlockPos feet = ctx.playerFeet();
+                BetterBlockPos obstruction =
+                        !MovementHelper.canWalkThrough(ctx, feet)
+                                ? feet : feet.above();
+                if (serverBaritone.getFakeInteractionController()
+                        .canReach(obstruction)) {
+                    serverBaritone.getFakeInteractionController()
+                            .breakBlock(obstruction);
+                }
+            }
         }
 
         // If the movement target has to force the new rotations, or we aren't using silent move, then force the rotations
@@ -164,37 +206,18 @@ public abstract class Movement implements IMovement, MovementHelper {
             }
             if (!MovementHelper.canWalkThrough(ctx, blockPos)) { // can't break air, so don't try
                 somethingInTheWay = true;
-                MovementHelper.switchToBestToolFor(ctx, BlockStateInterface.get(ctx, blockPos));
-                Optional<Rotation> reachable = RotationUtils.reachable(
-                        ctx,
-                        blockPos,
-                        RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
-                );
-                if (reachable.isPresent()) {
-                    Rotation rotTowardsBlock = reachable.get();
-                    state.setTarget(new MovementState.MovementTarget(rotTowardsBlock, true));
-                    if (baritone instanceof Baritone serverBaritone) {
-                        serverBaritone.getInputController().setBlockBreakTarget(blockPos);
-                    }
-                    // Carpet applies the look target and the continuous attack
-                    // together. Waiting for a client-side look confirmation here
-                    // can deadlock a server player in PREPPING.
-                    state.setInput(Input.CLICK_LEFT, true);
+                if (baritone instanceof Baritone serverBaritone
+                        && serverBaritone.getFakeInteractionController()
+                        .canReach(blockPos)) {
+                    serverBaritone.getFakeInteractionController()
+                            .breakBlock(blockPos);
                     return false;
                 }
-                //get rekt minecraft
-                //i'm doing it anyway
-                //i dont care if theres snow in the way!!!!!!!
-                //you dont own me!!!!
                 state.setTarget(new MovementState.MovementTarget(RotationUtils.calcRotationFromVec3d(ctx.playerHead(),
                         VecUtils.getBlockPosCenter(blockPos), ctx.playerRotations()), true)
                 );
-                if (baritone instanceof Baritone serverBaritone) {
-                    serverBaritone.getInputController().setBlockBreakTarget(blockPos);
-                }
-                // don't check selectedblock on this one, this is a fallback when we can't see any face directly, it's intended to be breaking the "incorrect" block
-                state.setInput(Input.CLICK_LEFT, true);
-                return false;
+                state.setStatus(MovementStatus.UNREACHABLE);
+                return true;
             }
         }
         if (somethingInTheWay) {

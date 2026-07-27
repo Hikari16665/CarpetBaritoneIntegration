@@ -39,10 +39,11 @@ import java.util.function.Consumer;
 public final class CollectItemProcess implements ICollectItemProcess {
     private static final int CHUNKS_PER_TICK = 6;
 
-    private enum State { SCANNING, TO_CONTAINER, TO_PLAYER }
+    private enum State { SEARCHING, ACQUIRING, DELIVERING, RETURNING }
 
     private final Baritone baritone;
-    private final List<StorageCandidate> candidates = new ArrayList<>();
+    /** Only positions are retained. Container contents are never cached. */
+    private final List<BlockPos> candidates = new ArrayList<>();
     private final Set<BlockPos> failedContainers = new HashSet<>();
     private Item item;
     private int amount;
@@ -52,10 +53,15 @@ public final class CollectItemProcess implements ICollectItemProcess {
     private StorageCandidate target;
     private Goal currentGoal;
     private int scanRadius;
-    private int scanSide;
+    private int scanBlockRadius;
     private int scanCursor;
+    private BlockPos searchOrigin;
+    private List<ChunkOffset> scanOrder = List.of();
     private int deliveredAmount;
     private boolean sourcesExhausted;
+    private boolean incompleteBecauseInventoryFull;
+    private BlockPos deliveryStart;
+    private int targetPathFailures;
 
     public CollectItemProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -71,8 +77,8 @@ public final class CollectItemProcess implements ICollectItemProcess {
         this.feedback = feedback == null ? ignored -> { } : feedback;
         this.scanRadius = baritone.getPlayerContext().server()
                 .getPlayerList().getViewDistance();
-        this.scanSide = scanRadius * 2 + 1;
-        this.state = State.SCANNING;
+        this.scanBlockRadius = scanRadius * 16;
+        beginSearch();
         if (availableInInventory() >= amount) {
             beginDelivery();
         }
@@ -81,54 +87,71 @@ public final class CollectItemProcess implements ICollectItemProcess {
     public void serverTick() {
         if (!isActive()) return;
         switch (state) {
-            case SCANNING -> scanTick();
-            case TO_CONTAINER -> {
-                if (target != null && isNear(target.pos)) {
+            case SEARCHING -> scanTick();
+            case ACQUIRING -> {
+                if (target != null && baritone
+                        .getFakeInteractionController()
+                        .canReach(target.pos)) {
                     baritone.cancelPath();
                     takeFromTarget();
                 }
             }
-            case TO_PLAYER -> deliverTick();
+            case DELIVERING -> deliverTick();
+            case RETURNING -> {
+                if (deliveryStart != null
+                        && baritone.getPlayerContext().playerFeet()
+                        .distSqr(deliveryStart) <= 4.0D) {
+                    baritone.cancelPath();
+                    incompleteBecauseInventoryFull = false;
+                    resumeAcquisitionAfterDelivery();
+                }
+            }
         }
     }
 
     private void scanTick() {
         ServerLevel world = baritone.getPlayerContext().world();
-        BlockPos feet = baritone.getPlayerContext().playerFeet();
-        int centerX = feet.getX() >> 4;
-        int centerZ = feet.getZ() >> 4;
+        int centerX = searchOrigin.getX() >> 4;
+        int centerZ = searchOrigin.getZ() >> 4;
         int processed = 0;
-        while (scanCursor < scanSide * scanSide
+        while (scanCursor < scanOrder.size()
                 && processed++ < CHUNKS_PER_TICK) {
-            int dx = scanCursor % scanSide - scanRadius;
-            int dz = scanCursor / scanSide - scanRadius;
-            scanCursor++;
-            LevelChunk chunk = world.getChunkSource()
-                    .getChunkNow(centerX + dx, centerZ + dz);
+            ChunkOffset offset = scanOrder.get(scanCursor++);
+            LevelChunk chunk = world.getChunkSource().getChunkNow(
+                    centerX + offset.x, centerZ + offset.z);
             if (chunk == null) continue;
             for (var entry : chunk.getBlockEntities().entrySet()) {
                 BlockPos pos = entry.getKey().immutable();
                 if (failedContainers.contains(pos)) continue;
+                if (searchOrigin.distSqr(pos)
+                        > (double) scanBlockRadius * scanBlockRadius) continue;
                 Container container = supportedContainer(entry.getValue());
                 if (container == null) continue;
                 StorageCandidate candidate = inspect(pos, container);
-                if (candidate.totalValue() > 0) candidates.add(candidate);
+                if (candidate.totalValue() > 0
+                        && !candidates.contains(pos)) candidates.add(pos);
+            }
+            if (freshCandidateTotal() >= itemsStillNeeded()) {
+                chooseNextContainer();
+                return;
             }
         }
-        if (scanCursor < scanSide * scanSide) return;
+        if (scanCursor < scanOrder.size()) return;
         chooseNextContainer();
     }
 
     private void chooseNextContainer() {
-        int needed = amount - deliveredAmount - availableInInventory();
+        int needed = itemsStillNeeded();
         if (needed <= 0) {
             beginDelivery();
             return;
         }
         BlockPos feet = baritone.getPlayerContext().playerFeet();
         target = candidates.stream()
-                .filter(candidate -> !failedContainers.contains(candidate.pos))
-                .filter(candidate -> containerAt(candidate.pos) != null)
+                .filter(pos -> !failedContainers.contains(pos))
+                .map(pos -> freshCandidate(pos))
+                .filter(candidate -> candidate != null
+                        && candidate.totalValue() > 0)
                 .max(Comparator
                         .comparingInt(StorageCandidate::priority)
                         .thenComparingDouble(candidate ->
@@ -154,7 +177,8 @@ public final class CollectItemProcess implements ICollectItemProcess {
             }
             return;
         }
-        state = State.TO_CONTAINER;
+        state = State.ACQUIRING;
+        targetPathFailures = 0;
         currentGoal = new GoalGetToBlock(target.pos);
     }
 
@@ -230,9 +254,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         container.setChanged();
         container.stopOpen(player);
         player.inventoryMenu.broadcastChanges();
-        candidates.removeIf(candidate -> candidate.pos.equals(target.pos));
-        StorageCandidate remaining = inspect(target.pos, container);
-        if (remaining.totalValue() > 0) candidates.add(remaining);
+        candidates.remove(target.pos);
         target = null;
         currentGoal = null;
         if (deliveredAmount + availableInInventory() >= amount) {
@@ -240,12 +262,13 @@ public final class CollectItemProcess implements ICollectItemProcess {
         } else if (inventoryBlocked && availableInInventory() > 0) {
             feedback.accept("背包已满，先投递当前批次 "
                     + availableInInventory() + " 个目标物品");
+            incompleteBecauseInventoryFull = true;
             beginDelivery();
         } else if (inventoryBlocked) {
             feedback.accept("背包已满且没有可先投递的目标物品，任务停止");
             onLostControl();
         } else {
-            chooseNextContainer();
+            beginSearch();
         }
     }
 
@@ -267,9 +290,12 @@ public final class CollectItemProcess implements ICollectItemProcess {
             return;
         }
         baritone.cancelPath();
-        int batchTarget = Math.min(availableInInventory(),
-                Math.max(0, amount - deliveredAmount));
-        int remaining = batchTarget;
+        /*
+         * Delivery is intentionally uncapped. Once we reach the recipient,
+         * every related loose item and every target item inside carried
+         * shulkers is handed over, including surplus acquired in the batch.
+         */
+        int delivered = 0;
         NonNullList<ItemStack> inventory =
                 player.getInventory().getNonEquipmentItems();
         List<Integer> boxes = new ArrayList<>();
@@ -277,40 +303,34 @@ public final class CollectItemProcess implements ICollectItemProcess {
             if (isFullTargetShulker(inventory.get(slot))) boxes.add(slot);
         }
         for (int slot : boxes) {
-            if (remaining <= 0) break;
             ItemStack box = inventory.get(slot);
             int value = boxedTargetCount(box);
             inventory.set(slot, ItemStack.EMPTY);
             dropTowardRecipient(box);
-            remaining -= value;
+            delivered += value;
         }
-        for (int slot = 0;
-             slot < inventory.size() && remaining > 0; slot++) {
+        for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack box = inventory.get(slot);
             if (isFullTargetShulker(box)
                     || boxedTargetCount(box) == 0) continue;
-            while (remaining > 0 && boxedTargetCount(box) > 0) {
-                ItemStack extracted = extractFromShulker(box, remaining);
+            while (boxedTargetCount(box) > 0) {
+                ItemStack extracted = extractFromShulker(
+                        box, Integer.MAX_VALUE);
                 if (extracted.isEmpty()) break;
-                remaining -= extracted.getCount();
+                delivered += extracted.getCount();
                 dropTowardRecipient(extracted);
             }
         }
-        for (int slot = inventory.size() - 1;
-             slot >= 0 && remaining > 0; slot--) {
+        for (int slot = inventory.size() - 1; slot >= 0; slot--) {
             ItemStack stack = inventory.get(slot);
             if (!stack.is(item)) continue;
-            int take = Math.min(remaining, stack.getCount());
-            ItemStack dropped = stack.copyWithCount(take);
-            stack.shrink(take);
+            int take = stack.getCount();
+            ItemStack dropped = stack.copy();
+            inventory.set(slot, ItemStack.EMPTY);
             dropTowardRecipient(dropped);
-            remaining -= take;
+            delivered += take;
         }
         player.inventoryMenu.broadcastChanges();
-        int delivered = batchTarget - Math.max(0, remaining);
-        if (remaining < 0) {
-            delivered -= remaining;
-        }
         deliveredAmount += delivered;
         if (deliveredAmount >= amount) {
             feedback.accept("已向 " + recipient.getScoreboardName()
@@ -318,6 +338,14 @@ public final class CollectItemProcess implements ICollectItemProcess {
                     + (deliveredAmount > amount
                     ? "（包含整盒潜影盒，实际数量超过要求）" : ""));
             onLostControl();
+        } else if (incompleteBecauseInventoryFull) {
+            feedback.accept("已向 " + recipient.getScoreboardName()
+                    + " 交付一批 " + delivered + " 个，累计 "
+                    + deliveredAmount + "/" + amount
+                    + "，返回交付起点后继续收集");
+            state = State.RETURNING;
+            currentGoal = deliveryStart == null ? null
+                    : new GoalNear(deliveryStart, 1);
         } else if (sourcesExhausted) {
             feedback.accept("目标物品没有找全：已向 "
                     + recipient.getScoreboardName() + " 投递 "
@@ -328,7 +356,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
             feedback.accept("已向 " + recipient.getScoreboardName()
                     + " 投递一批 " + delivered + " 个，累计 "
                     + deliveredAmount + "/" + amount + "，继续收集");
-            chooseNextContainer();
+            beginSearch();
         }
     }
 
@@ -349,12 +377,73 @@ public final class CollectItemProcess implements ICollectItemProcess {
     private void failTarget() {
         if (target != null) failedContainers.add(target.pos);
         target = null;
+        targetPathFailures = 0;
         currentGoal = null;
-        chooseNextContainer();
+        beginSearch();
+    }
+
+    /**
+     * Starts a fresh radial search at the current position. Container
+     * positions exist only for this search pass; their contents are re-read
+     * whenever a decision is made.
+     */
+    private void beginSearch() {
+        state = State.SEARCHING;
+        currentGoal = null;
+        target = null;
+        sourcesExhausted = false;
+        candidates.clear();
+        scanCursor = 0;
+        searchOrigin = baritone.getPlayerContext().playerFeet().immutable();
+        List<ChunkOffset> offsets = new ArrayList<>();
+        for (int x = -scanRadius; x <= scanRadius; x++) {
+            for (int z = -scanRadius; z <= scanRadius; z++) {
+                if (x * x + z * z <= scanRadius * scanRadius) {
+                    offsets.add(new ChunkOffset(x, z));
+                }
+            }
+        }
+        offsets.sort(Comparator.comparingInt(ChunkOffset::distanceSquared));
+        scanOrder = List.copyOf(offsets);
+    }
+
+    private int itemsStillNeeded() {
+        return Math.max(0, amount - deliveredAmount
+                - availableInInventory());
+    }
+
+    private int freshCandidateTotal() {
+        int total = 0;
+        int needed = itemsStillNeeded();
+        for (BlockPos pos : candidates) {
+            StorageCandidate candidate = freshCandidate(pos);
+            if (candidate != null) total += candidate.totalValue();
+            if (total >= needed) break;
+        }
+        return total;
+    }
+
+    private StorageCandidate freshCandidate(BlockPos pos) {
+        Container container = containerAt(pos);
+        return container == null ? null : inspect(pos, container);
+    }
+
+    private void resumeAcquisitionAfterDelivery() {
+        boolean hasFreshSource = candidates.stream()
+                .filter(pos -> !failedContainers.contains(pos))
+                .map(this::freshCandidate)
+                .anyMatch(candidate -> candidate != null
+                        && candidate.totalValue() > 0);
+        if (hasFreshSource) {
+            chooseNextContainer();
+        } else {
+            beginSearch();
+        }
     }
 
     private void beginDelivery() {
-        state = State.TO_PLAYER;
+        state = State.DELIVERING;
+        deliveryStart = baritone.getPlayerContext().playerFeet().immutable();
         ServerPlayer recipient = recipient();
         currentGoal = recipient == null ? null
                 : new GoalNear(recipient.blockPosition(), 2);
@@ -506,10 +595,18 @@ public final class CollectItemProcess implements ICollectItemProcess {
 
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
-        if (calcFailed && state == State.TO_CONTAINER) {
-            failTarget();
+        if (calcFailed && state == State.ACQUIRING) {
+            /*
+             * A no-break route around a long wall often has to move away from
+             * the container before approaching it. Do not blacklist a live
+             * container after one bounded search; allow the scheduler's
+             * expanded second-pass budget first.
+             */
+            if (++targetPathFailures >= 2) {
+                failTarget();
+            }
         }
-        if (state == State.TO_PLAYER) {
+        if (state == State.DELIVERING) {
             ServerPlayer recipient = recipient();
             if (recipient != null) {
                 currentGoal = new GoalNear(recipient.blockPosition(), 2);
@@ -528,6 +625,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         amount = 0;
         deliveredAmount = 0;
         sourcesExhausted = false;
+        incompleteBecauseInventoryFull = false;
         recipientId = null;
         state = null;
         target = null;
@@ -535,6 +633,10 @@ public final class CollectItemProcess implements ICollectItemProcess {
         candidates.clear();
         failedContainers.clear();
         scanCursor = 0;
+        searchOrigin = null;
+        scanOrder = List.of();
+        deliveryStart = null;
+        targetPathFailures = 0;
     }
     @Override public String displayName0() {
         return "Collect " + amount + " " + item + " (" + state + ")";
@@ -547,6 +649,12 @@ public final class CollectItemProcess implements ICollectItemProcess {
             if (fullBoxValue > 0) return 3;
             if (boxValue > 0) return 2;
             return looseValue > 0 ? 1 : 0;
+        }
+    }
+
+    private record ChunkOffset(int x, int z) {
+        private int distanceSquared() {
+            return x * x + z * z;
         }
     }
 }

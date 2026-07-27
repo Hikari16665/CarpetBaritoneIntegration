@@ -10,7 +10,8 @@ import static org.junit.Assert.assertTrue;
 
 public class ElytraProcessTest {
     @Test
-    public void waveFlightOnlyBoostsDuringClimbs() throws IOException {
+    public void waveFlightOnlyBoostsInitialVerticalLaunch()
+            throws IOException {
         String source = Files.readString(Path.of(
                 "src", "main", "java", "baritone", "process",
                 "ElytraProcess.java"));
@@ -18,7 +19,7 @@ public class ElytraProcessTest {
         assertTrue(source.contains("GLIDE_DOWN"));
         assertTrue(source.contains("CLIMB_BACK"));
         assertTrue(source.contains(
-                "state == State.INITIAL_CLIMB || state == State.CLIMB_BACK"));
+                "return state == State.INITIAL_CLIMB;"));
         assertTrue(source.contains("else pitch = -8.0F"));
     }
 }

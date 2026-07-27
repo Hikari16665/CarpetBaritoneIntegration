@@ -17,7 +17,10 @@ public class MineDropRecoveryTest {
         assertTrue(source.contains("clearDropAccess()"));
         assertTrue(source.contains("ClipContext.Block.COLLIDER"));
         assertTrue(source.contains("for (int dy = 0; dy <= 2; dy++)"));
-        assertTrue(source.contains("switchToBestToolFor"));
+        assertTrue(source.contains(
+                "getFakeInteractionController().pickup(collecting)"));
+        assertTrue(source.contains(
+                "getFakeInteractionController().canReach(pos)"));
         assertTrue(source.contains("Never include origin.below()"));
     }
 }

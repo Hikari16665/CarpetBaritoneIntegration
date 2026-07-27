@@ -16,6 +16,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -44,6 +47,7 @@ public final class ElytraProcess implements IElytraProcess {
     private int lastBoostTick = Integer.MIN_VALUE / 2;
     private double launchX;
     private double launchZ;
+    private BlockPos landingTarget;
 
     public ElytraProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -69,6 +73,7 @@ public final class ElytraProcess implements IElytraProcess {
         this.lastBoostTick = Integer.MIN_VALUE / 2;
         this.launchX = baritone.getPlayerContext().player().getX();
         this.launchZ = baritone.getPlayerContext().player().getZ();
+        this.landingTarget = null;
         rebuildDirectPath();
     }
 
@@ -91,13 +96,23 @@ public final class ElytraProcess implements IElytraProcess {
                 .getItemBySlot(EquipmentSlot.CHEST);
         if (!elytra.is(Items.ELYTRA)
                 || remainingDurability(elytra) <= Baritone.settings().elytraMinimumDurability.value) {
-            if (Baritone.settings().elytraAllowEmergencyLand.value) state = State.LANDING;
-            else onLostControl();
+            boolean swapped = Baritone.settings().elytraAutoSwap.value
+                    && baritone.getInventoryController().equipBestElytra(
+                            Baritone.settings().elytraMinimumDurability.value);
+            if (!swapped) {
+                if (Baritone.settings().elytraAllowEmergencyLand.value) {
+                    enterLanding();
+                } else {
+                    onLostControl();
+                    return;
+                }
+            }
         }
         Vec3 position = baritone.getPlayerContext().player().position();
+        BlockPos steeringTarget = flightTarget();
         double horizontal = Math.hypot(
-                destination.getX() + 0.5D - position.x,
-                destination.getZ() + 0.5D - position.z);
+                steeringTarget.getX() + 0.5D - position.x,
+                steeringTarget.getZ() + 0.5D - position.z);
         if (baritone.getPlayerContext().player().onGround()) {
             if (state == State.LANDING || horizontal <= 4.0D) {
                 onLostControl();
@@ -126,15 +141,15 @@ public final class ElytraProcess implements IElytraProcess {
                 Baritone.settings().elytraLandingApproachDistance.value);
         if (state == State.START_FLYING) state = State.INITIAL_CLIMB;
         if (state != State.INITIAL_CLIMB && horizontal <= landingRange) {
-            state = State.LANDING;
+            enterLanding();
         } else if (state == State.INITIAL_CLIMB && position.y >= high - 5) {
-            state = horizontal <= landingRange
-                    ? State.LANDING : State.GLIDE_DOWN;
+            if (horizontal <= landingRange) enterLanding();
+            else state = State.GLIDE_DOWN;
         } else if (state == State.GLIDE_DOWN && position.y <= low + 5) {
             state = State.CLIMB_BACK;
         } else if (state == State.CLIMB_BACK && position.y >= high - 5) {
-            state = horizontal <= landingRange
-                    ? State.LANDING : State.GLIDE_DOWN;
+            if (horizontal <= landingRange) enterLanding();
+            else state = State.GLIDE_DOWN;
         }
 
         Rotation rotation = rotationForState(position);
@@ -143,17 +158,20 @@ public final class ElytraProcess implements IElytraProcess {
         if (usesBoost(state) && shouldBoost()
                 && baritone.getInventoryController().selectItem(
                 stack -> stack.is(Items.FIREWORK_ROCKET))) {
-            baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
-            lastBoostTick = ticks;
+            if (baritone.getFakeInteractionController()
+                    .useSelectedInAir()) {
+                lastBoostTick = ticks;
+            }
         }
         baritone.getInputController().tick();
     }
 
     private Rotation rotationForState(Vec3 position) {
+        BlockPos steeringTarget = flightTarget();
         Rotation base = RotationUtils.calcRotationFromVec3d(
                 baritone.getPlayerContext().playerHead(),
-                new Vec3(destination.getX() + 0.5D, position.y,
-                        destination.getZ() + 0.5D),
+                new Vec3(steeringTarget.getX() + 0.5D, position.y,
+                        steeringTarget.getZ() + 0.5D),
                 baritone.getPlayerContext().playerRotations());
         return switch (state) {
             case INITIAL_CLIMB -> {
@@ -191,7 +209,78 @@ public final class ElytraProcess implements IElytraProcess {
     }
 
     private static boolean usesBoost(State state) {
-        return state == State.INITIAL_CLIMB || state == State.CLIMB_BACK;
+        // The custom long-flight profile uses rockets only for the initial
+        // vertical launch. Subsequent 400 -> 1000 climbs conserve momentum.
+        return state == State.INITIAL_CLIMB;
+    }
+
+    private void enterLanding() {
+        if (state != State.LANDING || landingTarget == null) {
+            landingTarget = findSafeLandingSpot();
+        }
+        state = State.LANDING;
+    }
+
+    private BlockPos flightTarget() {
+        return state == State.LANDING && landingTarget != null
+                ? landingTarget : destination;
+    }
+
+    /**
+     * Server adaptation of upstream's landing search. It only inspects
+     * already loaded chunks and requires a solid, dry support with two clear
+     * blocks for the fake player's body.
+     */
+    private BlockPos findSafeLandingSpot() {
+        var world = baritone.getPlayerContext().world();
+        BlockPos best = null;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        for (int radius = 0; radius <= 24; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (radius != 0
+                            && Math.max(Math.abs(dx), Math.abs(dz))
+                                    != radius) continue;
+                    int x = destination.getX() + dx;
+                    int z = destination.getZ() + dz;
+                    BlockPos probe = new BlockPos(x,
+                            destination.getY(), z);
+                    if (!world.hasChunkAt(probe)) continue;
+                    int y = world.getHeight(
+                            Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                            x, z);
+                    BlockPos feet = new BlockPos(x, y, z);
+                    if (!safeLandingColumn(feet)) continue;
+                    double distance = feet.distSqr(destination);
+                    if (distance < bestDistance) {
+                        best = feet;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            if (best != null) return best;
+        }
+        return destination;
+    }
+
+    private boolean safeLandingColumn(BlockPos feet) {
+        var world = baritone.getPlayerContext().world();
+        BlockState support = world.getBlockState(feet.below());
+        if (support.isAir()
+                || !support.getFluidState().isEmpty()
+                || support.is(Blocks.MAGMA_BLOCK)
+                || support.is(Blocks.CACTUS)
+                || support.is(Blocks.FIRE)
+                || support.is(Blocks.SOUL_FIRE)) {
+            return false;
+        }
+        return support.isCollisionShapeFullBlock(world, feet.below())
+                && world.getBlockState(feet).getCollisionShape(
+                        world, feet).isEmpty()
+                && world.getBlockState(feet.above()).getCollisionShape(
+                        world, feet.above()).isEmpty()
+                && world.getFluidState(feet).isEmpty()
+                && world.getFluidState(feet.above()).isEmpty();
     }
 
     private void rebuildDirectPath() {
@@ -227,6 +316,7 @@ public final class ElytraProcess implements IElytraProcess {
         state = State.START_FLYING;
         ticks = 0;
         lastBoostTick = Integer.MIN_VALUE / 2;
+        landingTarget = null;
     }
     @Override public boolean isLoaded() { return true; }
     @Override public boolean isSafeToCancel() {
@@ -241,7 +331,10 @@ public final class ElytraProcess implements IElytraProcess {
     }
     @Override public boolean isTemporary() { return false; }
     @Override public void onLostControl() {
-        destination = null; path = Collections.emptyList(); state = State.START_FLYING;
+        destination = null;
+        landingTarget = null;
+        path = Collections.emptyList();
+        state = State.START_FLYING;
     }
     @Override public String displayName0() { return "Elytra to " + destination; }
 }

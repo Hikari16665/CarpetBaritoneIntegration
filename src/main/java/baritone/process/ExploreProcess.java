@@ -53,7 +53,8 @@ public final class ExploreProcess implements IExploreProcess {
         if (baritone.getPathExecutor() != null) {
             return;
         }
-        if (filterInvert && jsonFilter != null
+        if (!Baritone.settings().disableCompletionCheck.value
+                && filterInvert && jsonFilter != null
                 && jsonFilter.stream().allMatch(explored::contains)) {
             onLostControl();
             return;
@@ -101,7 +102,9 @@ public final class ExploreProcess implements IExploreProcess {
                     int chunkZ = originChunkZ + dz;
                     long key = ChunkPos.asLong(chunkX, chunkZ);
                     if (!explored.contains(key) && !excludedByFilter(key)) {
-                        goals.add(createGoal((chunkX << 4) + 8, (chunkZ << 4) + 8));
+                        goals.add(createGoal(
+                                explorationTarget(chunkX, dx),
+                                explorationTarget(chunkZ, dz)));
                     }
                     if (dzAbs == 0 || goals.size() >= wanted) {
                         break;
@@ -113,6 +116,23 @@ public final class ExploreProcess implements IExploreProcess {
             }
         }
         return goals.toArray(Goal[]::new);
+    }
+
+    /**
+     * Mirrors Baritone's exploration offset. A positive offset deliberately
+     * aims beyond the center of the first uncached chunk so that the server
+     * loads a useful band of chunks before the next path recalculation.
+     */
+    private static int explorationTarget(int chunkCoordinate, int direction) {
+        int target = (chunkCoordinate << 4) + 8;
+        int offset = Baritone.settings().worldExploringChunkOffset.value << 4;
+        if (direction < 0) {
+            return target - offset;
+        }
+        if (direction > 0) {
+            return target + offset;
+        }
+        return target;
     }
 
     private static Goal createGoal(int x, int z) {
@@ -130,6 +150,14 @@ public final class ExploreProcess implements IExploreProcess {
 
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
+        if (calcFailed) {
+            // Do not terminate exploration because one frontier is blocked.
+            // Advance the Manhattan ring and let the server scheduler choose
+            // another frontier, matching the intent of upstream exploration.
+            distanceCompleted++;
+            currentGoal = null;
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
         return new PathingCommand(currentGoal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
     }
 

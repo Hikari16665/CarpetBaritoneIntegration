@@ -26,7 +26,7 @@ import baritone.api.pathing.path.IPathExecutor;
 import baritone.api.utils.*;
 import baritone.api.utils.input.Input;
 import baritone.behavior.PathingBehavior;
-import baritone.pathing.calc.AbstractNodeCostSearch;
+import baritone.api.pathing.calc.IPathFinder;
 import baritone.pathing.movement.CalculationContext;
 import baritone.pathing.movement.Movement;
 import baritone.pathing.movement.MovementHelper;
@@ -271,7 +271,7 @@ public class PathExecutor implements IPathExecutor, Helper {
     }
 
     private boolean shouldPause() {
-        Optional<AbstractNodeCostSearch> current = behavior.getInProgress();
+        Optional<IPathFinder> current = behavior.getInProgress();
         if (!current.isPresent()) {
             return false;
         }

@@ -3,12 +3,14 @@ package baritone.api.process;
 import baritone.api.utils.BlockOptionalMeta;
 import baritone.api.utils.BlockOptionalMetaLookup;
 import net.minecraft.world.level.block.Block;
+import baritone.api.selection.ISelection;
 
 import java.util.stream.Stream;
 
 public interface IMineProcess extends IBaritoneProcess {
     void mineByName(int quantity, String... blocks);
     void mine(int quantity, BlockOptionalMetaLookup filter);
+    void mineArea(ISelection selection, BlockOptionalMetaLookup filter);
     default void mine(BlockOptionalMetaLookup filter) { mine(0, filter); }
     default void mineByName(String... blocks) { mineByName(0, blocks); }
     default void mine(int quantity, BlockOptionalMeta... selectors) {
