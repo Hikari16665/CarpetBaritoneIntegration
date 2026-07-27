@@ -27,15 +27,14 @@ public final class ServerPathSync {
 
         List<BlockPos> current = currentPath(baritone.getPathExecutor());
         List<BlockPos> next = path(baritone.getNextPathExecutor(), 0);
-        List<BlockPos> calculating = inProgressPath(baritone);
-        if (current.isEmpty()) current = calculating;
-        else if (next.isEmpty()) next = calculating;
+        CalculationPaths calculating = inProgressPaths(baritone);
         if (current.isEmpty()
                 && baritone.getElytraProcess().isActive()) {
             current = simplify(baritone.getElytraProcess().getPath().stream()
                     .map(pos -> (BlockPos) pos).toList());
         }
         Goal goal = baritone.getActiveGoal();
+        List<BlockPos> selections = selectionCorners(baritone);
         BlockPos goalPos = goal instanceof IGoalRenderPos positioned
                 ? positioned.getGoalPos().immutable() : null;
         String process = baritone.getPathingControlManager()
@@ -43,6 +42,9 @@ public final class ServerPathSync {
                 .map(value -> value.displayName())
                 .orElse("");
         boolean active = !current.isEmpty() || !next.isEmpty()
+                || !calculating.best().isEmpty()
+                || !calculating.recent().isEmpty()
+                || !selections.isEmpty()
                 || goalPos != null
                 || baritone.getPathingBehavior().getInProgress().isPresent()
                 || !process.isEmpty();
@@ -54,6 +56,15 @@ public final class ServerPathSync {
                 active,
                 current,
                 next,
+                calculating.best(),
+                calculating.recent(),
+                executorPositions(baritone.getPathExecutor(),
+                        PositionKind.BREAK),
+                executorPositions(baritone.getPathExecutor(),
+                        PositionKind.PLACE),
+                executorPositions(baritone.getPathExecutor(),
+                        PositionKind.WALK_INTO),
+                selections,
                 goalPos,
                 gameTime);
         int viewDistance = fake.getServer().getPlayerList()
@@ -84,19 +95,54 @@ public final class ServerPathSync {
         return path(executor, Math.max(0, executor.getPosition() - 3));
     }
 
-    private static List<BlockPos> inProgressPath(Baritone baritone) {
+    private static CalculationPaths inProgressPaths(Baritone baritone) {
         try {
             return baritone.getPathingBehavior().getInProgress()
-                    .flatMap(finder -> finder.bestPathSoFar())
-                    .map(value -> simplify(value.positions().stream()
-                            .map(pos -> (BlockPos) pos).toList()))
-                    .orElse(Collections.emptyList());
+                    .map(finder -> new CalculationPaths(
+                            finder.bestPathSoFar()
+                                    .map(value -> simplify(value.positions()
+                                            .stream()
+                                            .map(pos -> (BlockPos) pos)
+                                            .toList()))
+                                    .orElse(Collections.emptyList()),
+                            finder.pathToMostRecentNodeConsidered()
+                                    .map(value -> simplify(value.positions()
+                                            .stream()
+                                            .map(pos -> (BlockPos) pos)
+                                            .toList()))
+                                    .orElse(Collections.emptyList())))
+                    .orElseGet(CalculationPaths::empty);
         } catch (RuntimeException concurrentUpdate) {
             // The worker may publish a new best node while this bounded
             // visualization snapshot is being assembled. Skip one frame;
             // never interfere with path calculation.
-            return Collections.emptyList();
+            return CalculationPaths.empty();
         }
+    }
+
+    private static List<BlockPos> executorPositions(
+            ServerPathExecutor executor, PositionKind kind) {
+        if (executor == null) return Collections.emptyList();
+        java.util.Set<BlockPos> positions = switch (kind) {
+            case BREAK -> executor.toBreak();
+            case PLACE -> executor.toPlace();
+            case WALK_INTO -> executor.toWalkInto();
+        };
+        return positions.stream()
+                .limit(MAX_POINTS)
+                .map(BlockPos::immutable)
+                .toList();
+    }
+
+    private static List<BlockPos> selectionCorners(Baritone baritone) {
+        List<BlockPos> corners = new ArrayList<>();
+        for (baritone.api.selection.ISelection selection
+                : baritone.getSelectionManager().getSelections()) {
+            if (corners.size() + 2 > MAX_POINTS) break;
+            corners.add(selection.min().immutable());
+            corners.add(selection.max().immutable());
+        }
+        return List.copyOf(corners);
     }
 
     private static List<BlockPos> path(
@@ -137,5 +183,17 @@ public final class ServerPathSync {
         if (!result.getLast().equals(last)
                 && result.size() < MAX_POINTS) result.add(last);
         return List.copyOf(result);
+    }
+
+    private enum PositionKind {
+        BREAK, PLACE, WALK_INTO
+    }
+
+    private record CalculationPaths(
+            List<BlockPos> best, List<BlockPos> recent) {
+        private static CalculationPaths empty() {
+            return new CalculationPaths(
+                    Collections.emptyList(), Collections.emptyList());
+        }
     }
 }

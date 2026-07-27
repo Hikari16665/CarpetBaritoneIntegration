@@ -101,6 +101,14 @@ public final class ServerPathExecutor implements IPathExecutor {
         return delegate.toBreak();
     }
 
+    public Set<BlockPos> toPlace() {
+        return delegate.toPlace();
+    }
+
+    public Set<BlockPos> toWalkInto() {
+        return delegate.toWalkInto();
+    }
+
     public MovementStatus getLastStatus() {
         return lastStatus;
     }

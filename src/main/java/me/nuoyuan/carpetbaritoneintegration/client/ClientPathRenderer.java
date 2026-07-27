@@ -66,6 +66,18 @@ public final class ClientPathRenderer {
                     snapshot.currentPath(), 255, 0, 0, 210);
             drawPath(lines, pose, camera,
                     snapshot.nextPath(), 255, 0, 255, 190);
+            drawPath(lines, pose, camera,
+                    snapshot.bestPathSoFar(), 0, 128, 255, 190);
+            drawPath(lines, pose, camera,
+                    snapshot.mostRecentConsidered(), 0, 255, 255, 170);
+            drawBoxes(lines, pose, camera,
+                    snapshot.blocksToBreak(), 255, 64, 64, 220);
+            drawBoxes(lines, pose, camera,
+                    snapshot.blocksToPlace(), 64, 128, 255, 220);
+            drawBoxes(lines, pose, camera,
+                    snapshot.blocksToWalkInto(), 255, 170, 0, 210);
+            drawSelections(lines, pose, camera,
+                    snapshot.selectionCorners());
             if (snapshot.goal() != null) {
                 drawGoal(lines, pose, camera, snapshot.goal());
             }
@@ -91,12 +103,60 @@ public final class ClientPathRenderer {
     private static void drawGoal(
             VertexConsumer consumer, PoseStack.Pose pose,
             Vec3 camera, BlockPos goal) {
-        double minX = goal.getX() + 0.03D;
-        double minY = goal.getY() + 0.03D;
-        double minZ = goal.getZ() + 0.03D;
-        double maxX = goal.getX() + 0.97D;
-        double maxY = goal.getY() + 1.97D;
-        double maxZ = goal.getZ() + 0.97D;
+        drawBox(consumer, pose, camera, goal,
+                0.03D, 0.97D, 0.03D, 1.97D,
+                0, 255, 0, 220);
+    }
+
+    private static void drawBoxes(
+            VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
+            List<BlockPos> positions,
+            int red, int green, int blue, int alpha) {
+        for (BlockPos position : positions) {
+            drawBox(consumer, pose, camera, position,
+                    0.01D, 0.99D, 0.01D, 0.99D,
+                    red, green, blue, alpha);
+        }
+    }
+
+    private static void drawSelections(
+            VertexConsumer consumer, PoseStack.Pose pose, Vec3 camera,
+            List<BlockPos> corners) {
+        for (int index = 0; index + 1 < corners.size(); index += 2) {
+            BlockPos min = corners.get(index);
+            BlockPos max = corners.get(index + 1);
+            drawBounds(consumer, pose, camera,
+                    min.getX() + 0.002D, min.getY() + 0.002D,
+                    min.getZ() + 0.002D,
+                    max.getX() + 0.998D, max.getY() + 0.998D,
+                    max.getZ() + 0.998D,
+                    255, 255, 255, 210);
+        }
+    }
+
+    private static void drawBox(
+            VertexConsumer consumer, PoseStack.Pose pose,
+            Vec3 camera, BlockPos goal,
+            double horizontalMin, double horizontalMax,
+            double verticalMin, double verticalMax,
+            int red, int green, int blue, int alpha) {
+        double minX = goal.getX() + horizontalMin;
+        double minY = goal.getY() + verticalMin;
+        double minZ = goal.getZ() + horizontalMin;
+        double maxX = goal.getX() + horizontalMax;
+        double maxY = goal.getY() + verticalMax;
+        double maxZ = goal.getZ() + horizontalMax;
+        drawBounds(consumer, pose, camera,
+                minX, minY, minZ, maxX, maxY, maxZ,
+                red, green, blue, alpha);
+    }
+
+    private static void drawBounds(
+            VertexConsumer consumer, PoseStack.Pose pose,
+            Vec3 camera,
+            double minX, double minY, double minZ,
+            double maxX, double maxY, double maxZ,
+            int red, int green, int blue, int alpha) {
         double[][] corners = {
                 {minX, minY, minZ}, {maxX, minY, minZ},
                 {maxX, minY, maxZ}, {minX, minY, maxZ},
@@ -114,7 +174,7 @@ public final class ClientPathRenderer {
             line(consumer, pose, camera,
                     from[0], from[1], from[2],
                     to[0], to[1], to[2],
-                    0, 255, 0, 220);
+                    red, green, blue, alpha);
         }
     }
 

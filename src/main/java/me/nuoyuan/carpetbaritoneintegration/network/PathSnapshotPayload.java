@@ -19,6 +19,12 @@ public record PathSnapshotPayload(
         boolean active,
         List<BlockPos> currentPath,
         List<BlockPos> nextPath,
+        List<BlockPos> bestPathSoFar,
+        List<BlockPos> mostRecentConsidered,
+        List<BlockPos> blocksToBreak,
+        List<BlockPos> blocksToPlace,
+        List<BlockPos> blocksToWalkInto,
+        List<BlockPos> selectionCorners,
         BlockPos goal,
         long sequence
 ) implements CustomPacketPayload {
@@ -40,6 +46,12 @@ public record PathSnapshotPayload(
                 buffer.readBoolean(),
                 readPositions(buffer),
                 readPositions(buffer),
+                readPositions(buffer),
+                readPositions(buffer),
+                readPositions(buffer),
+                readPositions(buffer),
+                readPositions(buffer),
+                readPositions(buffer),
                 buffer.readBoolean() ? buffer.readBlockPos() : null,
                 buffer.readVarLong());
     }
@@ -52,6 +64,12 @@ public record PathSnapshotPayload(
         buffer.writeBoolean(active);
         writePositions(buffer, currentPath);
         writePositions(buffer, nextPath);
+        writePositions(buffer, bestPathSoFar);
+        writePositions(buffer, mostRecentConsidered);
+        writePositions(buffer, blocksToBreak);
+        writePositions(buffer, blocksToPlace);
+        writePositions(buffer, blocksToWalkInto);
+        writePositions(buffer, selectionCorners);
         buffer.writeBoolean(goal != null);
         if (goal != null) buffer.writeBlockPos(goal);
         buffer.writeVarLong(sequence);
