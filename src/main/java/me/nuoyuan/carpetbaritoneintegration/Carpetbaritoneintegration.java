@@ -191,15 +191,6 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                 EventState.PRE, ChunkEvent.Type.UNLOAD,
                                 chunk.getPos().x, chunk.getPos().z));
                     }
-                    world.getServer()
-                            .getPlayerList()
-                            .getPlayers()
-                            .stream()
-                            .filter(player ->
-                                    player.getName()
-                                            .getString()
-                                            .endsWith("_abcdef"))
-                            .forEach(ServerPlayer::disconnect);
                 }));
     }
 
