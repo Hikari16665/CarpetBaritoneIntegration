@@ -33,7 +33,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.entity.Mob;
@@ -92,7 +92,7 @@ public final class BasicGoalCommandHandler {
         }
         try {
             Baritone baritone = Carpetbaritoneintegration.BARITONES.getOrCreate(
-                    target.getServer(), target);
+                    target.level().getServer(), target);
             if (!baritone.getCommandManager().executeAs(sender, target, command)) {
                 throw new IllegalArgumentException("未知指令。发送 cbi help 查看帮助");
             }
@@ -135,7 +135,7 @@ public final class BasicGoalCommandHandler {
         }
 
         Baritone baritone = Carpetbaritoneintegration.BARITONES.getOrCreate(
-                fakePlayer.getServer(),
+                fakePlayer.level().getServer(),
                 fakePlayer
         );
         switch (args[0].toLowerCase(Locale.ROOT)) {
@@ -365,7 +365,7 @@ public final class BasicGoalCommandHandler {
                 message -> reply(fakePlayer, sender, message));
         String names = targets.stream()
                 .map(BuiltInRegistries.BLOCK::getKey)
-                .map(ResourceLocation::toString)
+                .map(Identifier::toString)
                 .collect(java.util.stream.Collectors.joining(", "));
         reply(fakePlayer, sender, "开始搜索并挖掘 [" + names
                 + "]，总数量 " + count);
@@ -401,7 +401,7 @@ public final class BasicGoalCommandHandler {
                 message -> reply(fakePlayer, sender, message));
         String names = targets.stream()
                 .map(BuiltInRegistries.BLOCK::getKey)
-                .map(ResourceLocation::toString)
+                .map(Identifier::toString)
                 .collect(java.util.stream.Collectors.joining(", "));
         reply(fakePlayer, sender, "开始持续挖掘选区内的 ["
                 + names + "]；目标暂时为空时会等待，"
@@ -414,7 +414,7 @@ public final class BasicGoalCommandHandler {
                 && args[1].equalsIgnoreCase("list")) {
             String values = Baritone.settings().trashItems.value.stream()
                     .map(BuiltInRegistries.ITEM::getKey)
-                    .map(ResourceLocation::toString)
+                    .map(Identifier::toString)
                     .sorted()
                     .collect(java.util.stream.Collectors.joining(", "));
             reply(fakePlayer, sender, "垃圾黑名单（命中后全部丢弃）: "
@@ -457,7 +457,7 @@ public final class BasicGoalCommandHandler {
             int requestedCount = positive(args[index + 1], "amount");
             requested.merge(selected, requestedCount, Integer::sum);
         }
-        ServerPlayer recipient = fakePlayer.getServer().getPlayerList()
+        ServerPlayer recipient = fakePlayer.level().getServer().getPlayerList()
                 .getPlayerByName(args[args.length - 1]);
         if (recipient == null || recipient == fakePlayer) {
             throw new IllegalArgumentException(
@@ -480,7 +480,7 @@ public final class BasicGoalCommandHandler {
             throw new IllegalArgumentException(
                     "用法: cbi giveAll <playerName>");
         }
-        ServerPlayer recipient = fakePlayer.getServer().getPlayerList()
+        ServerPlayer recipient = fakePlayer.level().getServer().getPlayerList()
                 .getPlayerByName(args[1]);
         if (recipient == null || recipient == fakePlayer) {
             throw new IllegalArgumentException(
@@ -943,7 +943,7 @@ public final class BasicGoalCommandHandler {
         if (args.length != 2) {
             throw new IllegalArgumentException("用法: cbi follow <玩家>");
         }
-        ServerPlayer followed = fakePlayer.getServer().getPlayerList().getPlayerByName(args[1]);
+        ServerPlayer followed = fakePlayer.level().getServer().getPlayerList().getPlayerByName(args[1]);
         if (followed == null || followed == fakePlayer) {
             throw new IllegalArgumentException("找不到可跟随的玩家: " + args[1]);
         }
@@ -1004,11 +1004,11 @@ public final class BasicGoalCommandHandler {
             } catch (IllegalArgumentException exception) {
                 throw new IllegalArgumentException("无效的 Syncmatica 投影 ID");
             }
-            var shared = SyncmaticaBridge.find(fakePlayer.getServer(), id)
+            var shared = SyncmaticaBridge.find(fakePlayer.level().getServer(), id)
                     .orElseThrow(() -> new IllegalArgumentException(
                             "找不到该 Syncmatica 共享投影，或文件尚未下载到服务端"));
             String currentDimension = fakePlayer.level().dimension()
-                    .location().toString();
+                    .identifier().toString();
             if (!currentDimension.equals(shared.dimension())) {
                 throw new IllegalArgumentException(
                         "共享投影位于 " + shared.dimension()
@@ -1174,7 +1174,7 @@ public final class BasicGoalCommandHandler {
                             "用法: cbi cache repack [区块半径]");
                 }
                 int radius = args.length == 3 ? positive(args[2], "区块半径")
-                        : fakePlayer.getServer().getPlayerList().getViewDistance();
+                        : fakePlayer.level().getServer().getPlayerList().getViewDistance();
                 int packed = baritone.getWorldScanner().repack(
                         baritone.getPlayerContext(), radius);
                 reply(fakePlayer, sender, "已排队扫描 " + packed + " 个区块");
@@ -1651,7 +1651,7 @@ public final class BasicGoalCommandHandler {
     }
 
     private static Block block(String value) {
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 value.indexOf(':') < 0 ? "minecraft:" + value : value);
         if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("未知方块 ID: " + value);
@@ -1664,7 +1664,7 @@ public final class BasicGoalCommandHandler {
     }
 
     private static Item item(String value) {
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 value.indexOf(':') < 0 ? "minecraft:" + value : value);
         if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("未知物品 ID: " + value);
@@ -1751,7 +1751,7 @@ public final class BasicGoalCommandHandler {
     }
 
     private static void reply(ServerPlayer fakePlayer, ServerPlayer recipient, String message) {
-        MinecraftServer server = fakePlayer.getServer();
+        MinecraftServer server = fakePlayer.level().getServer();
         if (server == null) {
             return;
         }

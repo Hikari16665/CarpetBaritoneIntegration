@@ -372,7 +372,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             found.addAll(baritone.getWorldCache().locationsOfNear(
                     block, feet.x, feet.z,
                     areaMine ? areaSearchRadiusChunks()
-                            : ctx.player().getServer().getPlayerList()
+                            : ctx.player().level().getServer().getPlayerList()
                             .getViewDistance(),
                     Math.max(maximum * 2,
                             Baritone.settings().maxCachedWorldScanCount.value)));
@@ -422,7 +422,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         blacklistUntil.entrySet().removeIf(
                 entry -> entry.getValue() <= tickCount);
         CalculationContext calculation = new CalculationContext(baritone);
-        int viewDistance = ctx.player().getServer().getPlayerList()
+        int viewDistance = ctx.player().level().getServer().getPlayerList()
                 .getViewDistance();
         int playerChunkX = ctx.playerFeet().x >> 4;
         int playerChunkZ = ctx.playerFeet().z >> 4;

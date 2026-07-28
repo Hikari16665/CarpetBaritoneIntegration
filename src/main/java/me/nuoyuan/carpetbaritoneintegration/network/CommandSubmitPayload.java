@@ -3,7 +3,7 @@ package me.nuoyuan.carpetbaritoneintegration.network;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** C2S command transport that is independent of Minecraft chat limits. */
 public record CommandSubmitPayload(String fakePlayer, String command)
@@ -11,7 +11,7 @@ public record CommandSubmitPayload(String fakePlayer, String command)
     private static final int MAX_FAKE_NAME = 64;
     private static final int MAX_COMMAND_LENGTH = 262_144;
     public static final Type<CommandSubmitPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(
+            Identifier.fromNamespaceAndPath(
                     "carpetbaritoneintegration", "command_submit"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
             CommandSubmitPayload> STREAM_CODEC =

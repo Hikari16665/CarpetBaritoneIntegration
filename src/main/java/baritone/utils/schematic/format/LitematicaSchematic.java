@@ -8,7 +8,7 @@ import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -75,7 +75,7 @@ public final class LitematicaSchematic extends CompositeSchematic implements ISt
     }
 
     private static BlockState readState(CompoundTag tag) {
-        ResourceLocation id = ResourceLocation.tryParse(tag.getString("Name").orElse(""));
+        Identifier id = Identifier.tryParse(tag.getString("Name").orElse(""));
         Block block = id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.get(id)
                 .map(Holder.Reference::value).orElse(Blocks.AIR);
         BlockState state = block.defaultBlockState();

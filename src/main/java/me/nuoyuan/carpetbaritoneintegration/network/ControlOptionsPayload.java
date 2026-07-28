@@ -3,7 +3,7 @@ package me.nuoyuan.carpetbaritoneintegration.network;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +17,7 @@ public record ControlOptionsPayload(
         List<WaypointOption> waypoints
 ) implements CustomPacketPayload {
     public static final Type<ControlOptionsPayload> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath(
+            new Type<>(Identifier.fromNamespaceAndPath(
                     "carpetbaritoneintegration", "control_options"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
             ControlOptionsPayload> STREAM_CODEC =

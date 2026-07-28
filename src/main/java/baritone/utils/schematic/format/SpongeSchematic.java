@@ -3,7 +3,7 @@ package baritone.utils.schematic.format;
 import baritone.utils.schematic.StaticSchematic;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,7 +49,7 @@ public final class SpongeSchematic extends StaticSchematic {
     private static BlockState parseState(String text) {
         int bracket = text.indexOf('[');
         String idText = bracket < 0 ? text : text.substring(0, bracket);
-        ResourceLocation id = ResourceLocation.tryParse(idText);
+        Identifier id = Identifier.tryParse(idText);
         Block block = id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.getValue(id);
         if (block == null) block = Blocks.AIR;
         BlockState state = block.defaultBlockState();

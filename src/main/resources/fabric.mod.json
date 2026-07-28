@@ -21,7 +21,7 @@
     "carpetbaritoneintegration.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.17.2",
+    "fabricloader": ">=${loader_version}",
     "fabric-api": "*",
     "minecraft": "${minecraft_version}"
   }

@@ -5,7 +5,7 @@ import baritone.api.cache.ICachedRegion;
 import baritone.api.cache.ICachedWorld;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
@@ -436,7 +436,7 @@ public final class ServerWorldCache implements ICachedWorld {
             String blockName, int maximum, int centerX, int centerZ,
             int maxRegionDistanceSq) {
         removeExpired();
-        ResourceLocation id = ResourceLocation.tryParse(blockName);
+        Identifier id = Identifier.tryParse(blockName);
         Block block = id == null ? null : BuiltInRegistries.BLOCK.getValue(id);
         if (block == null || maximum <= 0) return new ArrayList<>();
         return indexedBlocks.getOrDefault(block, Set.of()).stream()
@@ -655,7 +655,7 @@ public final class ServerWorldCache implements ICachedWorld {
                 }
                 Map<Block, List<BlockPos>> index = new HashMap<>();
                 for (int type = 0; type < blockTypes; type++) {
-                    ResourceLocation id = ResourceLocation.tryParse(input.readUTF());
+                    Identifier id = Identifier.tryParse(input.readUTF());
                     Block block = id == null ? Blocks.AIR
                             : BuiltInRegistries.BLOCK.getValue(id);
                     int positions = input.readInt();
@@ -690,7 +690,7 @@ public final class ServerWorldCache implements ICachedWorld {
     }
 
     private Path cacheFile() {
-        String dimension = world.dimension().location().toString()
+        String dimension = world.dimension().identifier().toString()
                 .replace(':', '_').replace('/', '_');
         return world.getServer().getWorldPath(LevelResource.ROOT)
                 .resolve("baritone").resolve("cache")

@@ -12,7 +12,7 @@ import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.Syncma
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.Arrays;
@@ -486,7 +486,7 @@ final class StructuredCommandScreen extends AbstractScreen {
 
     private void useMainHandInto(EditBoxWidget box) {
         if (minecraft.player == null) return;
-        ResourceLocation id = BuiltInRegistries.ITEM.getKey(
+        Identifier id = BuiltInRegistries.ITEM.getKey(
                 minecraft.player.getMainHandItem().getItem());
         box.setValue(id.getNamespace().equals("minecraft")
                 ? id.getPath() : id.toString());
@@ -502,7 +502,7 @@ final class StructuredCommandScreen extends AbstractScreen {
 
     private void refreshPreview(String raw) {
         if (preview == null) return;
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 raw.contains(":") ? raw : "minecraft:" + raw);
         preview.setItemStack(id == null ? ItemStack.EMPTY
                 : new ItemStack(BuiltInRegistries.ITEM.getValue(id)));

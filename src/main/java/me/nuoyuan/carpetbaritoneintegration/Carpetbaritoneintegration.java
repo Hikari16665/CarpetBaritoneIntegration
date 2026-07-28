@@ -52,7 +52,7 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                     .stream()
                                     .filter(EntityPlayerMPFake.class::isInstance)
                                     .map(player -> player.getGameProfile()
-                                            .getName())
+                                            .name())
                                     .forEach(fakeNames::add);
                             context.server().getAllLevels().forEach(level ->
                                     level.players().stream()
@@ -60,21 +60,21 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                                     ::isInstance)
                                             .map(player -> player
                                                     .getGameProfile()
-                                                    .getName())
+                                                    .name())
                                             .forEach(fakeNames::add));
                             BARITONES.snapshot().stream()
                                     .map(instance -> instance
                                             .getPlayerContext().player())
                                     .filter(EntityPlayerMPFake.class::isInstance)
                                     .map(player -> player.getGameProfile()
-                                            .getName())
+                                            .name())
                                     .forEach(fakeNames::add);
                             List<String> fakePlayers = fakeNames.stream()
                                     .sorted().toList();
                             List<String> onlinePlayers = context.server()
                                     .getPlayerList().getPlayers().stream()
                                     .map(player -> player.getGameProfile()
-                                            .getName())
+                                            .name())
                                     .sorted().toList();
                             List<ControlOptionsPayload.WaypointOption>
                                     waypoints = BARITONES.snapshot().stream()

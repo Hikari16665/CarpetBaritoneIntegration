@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -172,7 +173,8 @@ public final class CachedChunk {
             case AIR -> Blocks.AIR.defaultBlockState();
             case WATER -> Blocks.WATER.defaultBlockState();
             case AVOID -> Blocks.LAVA.defaultBlockState();
-            case SOLID -> world.dimensionType().ultraWarm()
+            case SOLID -> world.dimensionType().attributes().applyModifier(
+                    EnvironmentAttributes.WATER_EVAPORATES, false)
                     ? Blocks.NETHERRACK.defaultBlockState()
                     : Blocks.STONE.defaultBlockState();
         };

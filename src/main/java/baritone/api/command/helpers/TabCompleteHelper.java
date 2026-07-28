@@ -1,7 +1,7 @@
 package baritone.api.command.helpers;
 
 import baritone.api.command.manager.ICommandManager;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -45,7 +45,7 @@ public final class TabCompleteHelper {
         return filter(value -> value.toLowerCase(Locale.ROOT).startsWith(normalized));
     }
     public TabCompleteHelper filterPrefixNamespaced(String prefix) {
-        ResourceLocation location = ResourceLocation.tryParse(prefix);
+        Identifier location = Identifier.tryParse(prefix);
         return location == null ? filter(ignored -> false) : filterPrefix(location.toString());
     }
     public TabCompleteHelper addCommands(ICommandManager manager) {

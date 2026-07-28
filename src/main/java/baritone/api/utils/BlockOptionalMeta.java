@@ -1,7 +1,7 @@
 package baritone.api.utils;
 
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -26,7 +26,7 @@ public final class BlockOptionalMeta {
     public BlockOptionalMeta(String selector) {
         int bracket = selector.indexOf('[');
         String idText = bracket < 0 ? selector : selector.substring(0, bracket);
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 idText.contains(":") ? idText : "minecraft:" + idText);
         if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("Invalid block name " + idText);

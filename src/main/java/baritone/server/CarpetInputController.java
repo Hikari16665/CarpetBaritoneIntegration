@@ -153,7 +153,7 @@ public final class CarpetInputController implements IInputOverrideHandler {
         }
         if (Baritone.settings().autoTool.value
                 && !Baritone.settings().assumeExternalAutoTool.value) {
-            if (player.getServer() != null) {
+            if (player.level().getServer() != null) {
                 // Mirrors the part of upstream InventoryBehavior that keeps
                 // the best mining tool available on the hotbar.
                 new ServerInventoryController(player).ensureBestToolOnHotbar(state);

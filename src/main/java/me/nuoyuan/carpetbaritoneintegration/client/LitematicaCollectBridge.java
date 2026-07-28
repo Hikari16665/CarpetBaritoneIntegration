@@ -3,7 +3,7 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.lang.reflect.Method;
@@ -75,7 +75,7 @@ public final class LitematicaCollectBridge {
             throw new IllegalArgumentException("Empty material-list entry");
         }
         int missing = Math.max(1, (int) invoke(entry, "getCountMissing"));
-        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
         String value = id.getNamespace().equals("minecraft")
                 ? id.getPath() : id.toString();
         return new MultiItemCommandScreen.Entry(value, missing);

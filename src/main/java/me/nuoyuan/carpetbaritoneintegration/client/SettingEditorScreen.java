@@ -12,7 +12,7 @@ import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.Settin
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -329,7 +329,7 @@ final class SettingEditorScreen extends AbstractScreen {
                     (entries.contains(value) ? "✓ 点击移除  " : "＋ 点击添加  ")
                             + value));
             if (row < listIcons.size()) {
-                ResourceLocation id = ResourceLocation.tryParse(value);
+                Identifier id = Identifier.tryParse(value);
                 listIcons.get(row).setItemStack(id == null
                         ? ItemStack.EMPTY : new ItemStack(
                         BuiltInRegistries.ITEM.getValue(id)));
@@ -365,7 +365,7 @@ final class SettingEditorScreen extends AbstractScreen {
     private List<String> registryCandidates(String type) {
         if (type.equals("ITEM_LIST")) {
             return BuiltInRegistries.ITEM.keySet().stream()
-                    .map(ResourceLocation::toString).sorted().toList();
+                    .map(Identifier::toString).sorted().toList();
         }
         if (type.equals("STRING_LIST")) {
             return BuiltInRegistries.BLOCK.stream()
@@ -375,7 +375,7 @@ final class SettingEditorScreen extends AbstractScreen {
                     .distinct().sorted().toList();
         }
         return BuiltInRegistries.BLOCK.keySet().stream()
-                .map(ResourceLocation::toString).sorted().toList();
+                .map(Identifier::toString).sorted().toList();
     }
 
     private String candidate(int index) {

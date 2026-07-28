@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.17-SNAPSHOT'
+    id 'fabric-loom' version "${loom_version}"
     id 'maven-publish'
 }
 
@@ -52,7 +52,7 @@ dependencies {
 
     //carpet mod!
     modImplementation "carpet:fabric-carpet:${project.carpet_core_version}"
-    modImplementation files("libs/uilib-2.1.4-1.21.6-fabric.jar")
+    modImplementation files("libs/uilib-19.1.0-1.21.11-fabric.jar")
 
     implementation "dev.babbaj:nether-pathfinder:1.6"
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"

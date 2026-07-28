@@ -1,7 +1,7 @@
 package me.nuoyuan.carpetbaritoneintegration.compat;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
@@ -35,7 +35,7 @@ public final class SyncmaticaBridge {
             Class<?> root = Class.forName(SYNCMATICA);
             Object serverKey = root.getField("SERVER_CONTEXT").get(null);
             Object context = invokeStatic(root, "getContext",
-                    new Class<?>[]{ResourceLocation.class}, serverKey);
+                    new Class<?>[]{Identifier.class}, serverKey);
             if (context == null) return List.of();
             Object manager = invoke(context, "getSyncmaticManager");
             Object storage = invoke(context, "getFileStorage");

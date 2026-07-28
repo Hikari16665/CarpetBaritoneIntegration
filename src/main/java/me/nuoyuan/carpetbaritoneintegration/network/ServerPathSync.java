@@ -72,7 +72,7 @@ public final class ServerPathSync {
         PathSnapshotPayload payload = new PathSnapshotPayload(
                 fake.getUUID(),
                 fake.getScoreboardName(),
-                fake.level().dimension().location().toString(),
+                fake.level().dimension().identifier().toString(),
                 process,
                 active,
                 current,
@@ -102,11 +102,11 @@ public final class ServerPathSync {
             syncState = SYNC_STATES.computeIfAbsent(
                     baritone, ignored -> new SyncState());
         }
-        int viewDistance = fake.getServer().getPlayerList()
+        int viewDistance = fake.level().getServer().getPlayerList()
                 .getViewDistance();
         Set<UUID> currentlyVisible = new HashSet<>();
         for (ServerPlayer viewer :
-                fake.getServer().getPlayerList().getPlayers()) {
+                fake.level().getServer().getPlayerList().getPlayers()) {
             if (isVisibleTo(fake, viewer, viewDistance)
                     && ServerPlayNetworking.canSend(
                     viewer, PathSnapshotPayload.TYPE)) {

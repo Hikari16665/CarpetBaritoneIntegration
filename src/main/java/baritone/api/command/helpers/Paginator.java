@@ -113,7 +113,7 @@ public final class Paginator<E> {
                 + StringArgumentType.escapeIfRequired(
                         execution.sender().getScoreboardName())
                 + " " + StringArgumentType.escapeIfRequired("[Baritone] " + text);
-        execution.fakePlayer().getServer().getCommands().performPrefixedCommand(
+        execution.fakePlayer().level().getServer().getCommands().performPrefixedCommand(
                 execution.fakePlayer().createCommandSourceStack(), command);
     }
 }

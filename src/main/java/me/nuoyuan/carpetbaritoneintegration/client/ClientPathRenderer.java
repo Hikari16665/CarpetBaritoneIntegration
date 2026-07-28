@@ -3,10 +3,10 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import me.nuoyuan.carpetbaritoneintegration.network.PathSnapshotPayload;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
@@ -48,16 +48,16 @@ public final class ClientPathRenderer {
             clear();
             return;
         }
-        PoseStack matrices = context.matrixStack();
+        PoseStack matrices = context.matrices();
         MultiBufferSource consumers = context.consumers();
         if (matrices == null || consumers == null) return;
         long now = System.currentTimeMillis();
         SNAPSHOTS.entrySet().removeIf(entry ->
                 now - entry.getValue().receivedAt > EXPIRY_MILLIS);
         String dimension =
-                client.level.dimension().location().toString();
-        Vec3 camera = context.camera().getPosition();
-        VertexConsumer lines = consumers.getBuffer(RenderType.lines());
+                client.level.dimension().identifier().toString();
+        Vec3 camera = context.worldState().cameraRenderState.pos;
+        VertexConsumer lines = consumers.getBuffer(RenderTypes.lines());
         PoseStack.Pose pose = matrices.last();
         for (CachedSnapshot cached : SNAPSHOTS.values()) {
             PathSnapshotPayload snapshot = cached.payload;

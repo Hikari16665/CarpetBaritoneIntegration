@@ -9,7 +9,7 @@ import com.daqem.uilib.gui.widget.EditBoxWidget;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
@@ -261,14 +261,14 @@ final class CommandParameterScreen extends AbstractScreen {
     private void useMainHand() {
         if (minecraft == null || minecraft.player == null) return;
         ItemStack stack = minecraft.player.getMainHandItem();
-        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
         itemBox.setValue(id.getNamespace().equals("minecraft")
                 ? id.getPath() : id.toString());
         itemPreview.setItemStack(stack.copy());
     }
 
     private void refreshItemPreview(String value) {
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 value.contains(":") ? value : "minecraft:" + value);
         itemPreview.setItemStack(id == null ? ItemStack.EMPTY
                 : new ItemStack(BuiltInRegistries.ITEM.getValue(id)));

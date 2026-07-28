@@ -16,7 +16,7 @@ public final class WorldData implements IWorldData {
 
     public WorldData(ServerLevel world) {
         cache = new CachedWorld(world);
-        String dimension = world.dimension().location().toString()
+        String dimension = world.dimension().identifier().toString()
                 .replace(':', '_').replace('/', '_');
         this.directory = world.getServer().getWorldPath(LevelResource.ROOT)
                 .resolve("baritone").resolve(dimension);

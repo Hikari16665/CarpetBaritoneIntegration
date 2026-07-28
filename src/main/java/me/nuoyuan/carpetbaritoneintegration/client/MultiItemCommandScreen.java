@@ -9,7 +9,7 @@ import com.daqem.uilib.gui.widget.EditBoxWidget;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -132,7 +132,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
         addWidget(new ButtonWidget(left + 98, top + 194, 92, 20,
                 Component.literal("添加主手"), button -> {
             if (minecraft.player == null) return;
-            ResourceLocation id = BuiltInRegistries.ITEM.getKey(
+            Identifier id = BuiltInRegistries.ITEM.getKey(
                     minecraft.player.getMainHandItem().getItem());
             entries.add(new Entry(normalize(id.toString()), 1));
             firstVisibleRow = Math.max(
@@ -250,7 +250,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
     }
 
     private static ItemStack stack(String value) {
-        ResourceLocation id = ResourceLocation.tryParse(
+        Identifier id = Identifier.tryParse(
                 value.contains(":") ? value : "minecraft:" + value);
         return id == null ? ItemStack.EMPTY
                 : new ItemStack(BuiltInRegistries.ITEM.getValue(id));

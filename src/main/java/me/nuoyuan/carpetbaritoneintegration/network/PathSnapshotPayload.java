@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +31,7 @@ public record PathSnapshotPayload(
         long sequence
 ) implements CustomPacketPayload {
     public static final Type<PathSnapshotPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(
+            Identifier.fromNamespaceAndPath(
                     "carpetbaritoneintegration", "path_snapshot"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
             PathSnapshotPayload> STREAM_CODEC =

@@ -8,7 +8,7 @@ import com.daqem.uilib.gui.widget.EditBoxWidget;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -67,7 +67,7 @@ final class ItemPickerScreen extends AbstractScreen {
                 firstVisibleRow + VISIBLE_ROWS);
         for (int index = firstVisibleRow; index < end; index++) {
             Item item = pageItems.get(index);
-            ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+            Identifier id = BuiltInRegistries.ITEM.getKey(item);
             int rowY = listTop + (index - firstVisibleRow) * 22;
             addComponent(new ItemComponent(
                     left + 2, rowY + 2, new ItemStack(item), true));
@@ -144,11 +144,11 @@ final class ItemPickerScreen extends AbstractScreen {
                 .toList();
     }
 
-    private static String display(ResourceLocation id) {
+    private static String display(Identifier id) {
         return "    " + id;
     }
 
-    private static String normalized(ResourceLocation id) {
+    private static String normalized(Identifier id) {
         return id.getNamespace().equals("minecraft")
                 ? id.getPath() : id.toString();
     }
