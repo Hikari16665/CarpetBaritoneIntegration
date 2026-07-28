@@ -3,10 +3,10 @@ name: CI and Release
 on:
   push:
     branches:
-      - master
+      - "multiver/**"
   pull_request:
     branches:
-      - master
+      - "multiver/**"
   workflow_dispatch:
 
 permissions:
@@ -44,26 +44,30 @@ jobs:
         id: artifact
         shell: bash
         run: |
+          minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          test -n "$minecraft_version"
           artifact="$(find build/libs -maxdepth 1 -type f -name '*.jar' \
             ! -name '*-sources.jar' ! -name '*-dev.jar' | head -n 1)"
           test -n "$artifact"
           echo "path=$artifact" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$artifact")" >> "$GITHUB_OUTPUT"
+          echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CarpetBaritoneIntegration
+          name: CarpetBaritoneIntegration-${{ steps.artifact.outputs.minecraft-version }}
           path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
 
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
+      minecraft-version: ${{ steps.artifact.outputs.minecraft-version }}
 
   release:
     name: Release changed version
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/multiver/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,7 +83,9 @@ jobs:
         shell: bash
         run: |
           version="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
           test -n "$version"
+          test -n "$minecraft_version"
 
           previous=""
           if git rev-parse "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
@@ -93,15 +99,16 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "tag=mc-$minecraft_version-v$version" >> "$GITHUB_OUTPUT"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "Current version: $version; previous version: ${previous:-<none>}"
+          echo "Minecraft: $minecraft_version; current version: $version; previous version: ${previous:-<none>}"
 
       - name: Download build artifact
         if: steps.version.outputs.changed == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: CarpetBaritoneIntegration
+          name: CarpetBaritoneIntegration-${{ steps.version.outputs.minecraft-version }}
           path: release-artifact
 
       - name: Create GitHub Release
@@ -110,6 +117,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          MINECRAFT_VERSION: ${{ steps.version.outputs.minecraft-version }}
         shell: bash
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -121,5 +129,5 @@ jobs:
           test -n "$artifact"
           gh release create "$TAG" "$artifact" \
             --target "${{ github.sha }}" \
-            --title "CarpetBaritoneIntegration $VERSION" \
+            --title "CarpetBaritoneIntegration $VERSION (Minecraft $MINECRAFT_VERSION)" \
             --generate-notes
