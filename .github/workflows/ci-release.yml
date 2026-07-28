@@ -1,0 +1,133 @@
+name: CI and Release
+
+on:
+  push:
+    branches:
+      - "multiver/**"
+  pull_request:
+    branches:
+      - "multiver/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Build and test
+        run: ./gradlew clean build --stacktrace
+
+      - name: Select release artifact
+        id: artifact
+        shell: bash
+        run: |
+          minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          test -n "$minecraft_version"
+          artifact="$(find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-dev.jar' | head -n 1)"
+          test -n "$artifact"
+          echo "path=$artifact" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$artifact")" >> "$GITHUB_OUTPUT"
+          echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CarpetBaritoneIntegration-${{ steps.artifact.outputs.minecraft-version }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+      minecraft-version: ${{ steps.artifact.outputs.minecraft-version }}
+
+  release:
+    name: Release changed version
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/multiver/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Detect version change
+        id: version
+        shell: bash
+        run: |
+          version="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          test -n "$version"
+          test -n "$minecraft_version"
+
+          previous=""
+          if git rev-parse "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
+            previous="$(git show "${{ github.event.before }}:gradle.properties" 2>/dev/null \
+              | sed -n 's/^mod_version=//p' | head -n 1 | tr -d '\r' || true)"
+          fi
+
+          changed=false
+          if [[ "$version" != "$previous" ]]; then
+            changed=true
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "tag=mc-$minecraft_version-v$version" >> "$GITHUB_OUTPUT"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Minecraft: $minecraft_version; current version: $version; previous version: ${previous:-<none>}"
+
+      - name: Download build artifact
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: CarpetBaritoneIntegration-${{ steps.version.outputs.minecraft-version }}
+          path: release-artifact
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MINECRAFT_VERSION: ${{ steps.version.outputs.minecraft-version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+            exit 0
+          fi
+
+          artifact="$(find release-artifact -maxdepth 1 -type f -name '*.jar' | head -n 1)"
+          test -n "$artifact"
+          gh release create "$TAG" "$artifact" \
+            --target "${{ github.sha }}" \
+            --title "CarpetBaritoneIntegration $VERSION (Minecraft $MINECRAFT_VERSION)" \
+            --generate-notes
