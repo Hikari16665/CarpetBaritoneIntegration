@@ -8,6 +8,7 @@ import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.pathing.goals.GoalGetToBlock;
+import baritone.api.pathing.goals.GoalNear;
 import baritone.api.process.IBuilderProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
@@ -20,6 +21,7 @@ import baritone.api.schematic.SubstituteSchematic;
 import baritone.api.schematic.IStaticSchematic;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
+import baritone.api.utils.interfaces.IGoalRenderPos;
 import baritone.api.utils.input.Input;
 import baritone.pathing.movement.MovementHelper;
 import baritone.pathing.movement.CalculationContext;
@@ -49,6 +51,10 @@ import net.minecraft.world.level.block.WallSkullBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -95,6 +101,7 @@ public final class BuilderProcess implements IBuilderProcess {
      */
     private BlockPos publishedGoalTarget;
     private Goal publishedApproachGoal;
+    private boolean publishedTargetChunkLoaded;
     private List<BlockState> approxPlaceable = Collections.emptyList();
     private int layer;
     private int scanCursor;
@@ -169,6 +176,7 @@ public final class BuilderProcess implements IBuilderProcess {
         this.target = null;
         this.publishedGoalTarget = null;
         this.publishedApproachGoal = null;
+        this.publishedTargetChunkLoaded = false;
         this.layer = Math.max(0, Baritone.settings().startAtLayer.value);
         this.scanCursor = 0;
         this.tickCount = 0;
@@ -224,12 +232,11 @@ public final class BuilderProcess implements IBuilderProcess {
             return;
         }
         if (baritone.getPathExecutor() != null) {
-            if (!baritone.getPathExecutor().isSafeToCancel()
-                    || !baritone.getPlayerContext().player().onGround()
-                    || !selectImmediateIncorrect()) {
-                return;
-            }
-            baritone.cancelPath();
+            // Never construct while travelling through the schematic. The
+            // old immediate-action pass could place walls around the player
+            // before it reached its selected stance, trapping it inside the
+            // building and invalidating the remaining path.
+            return;
         }
         if (target != null && positionComplete(target, desired)) {
             incorrectPositions.remove(target);
@@ -250,11 +257,7 @@ public final class BuilderProcess implements IBuilderProcess {
             }
         }
         if (!withinReach(target)) {
-            // A completed path may have ended beside a different member of
-            // the composite. Re-select from the player's new position before
-            // issuing the next calculation.
-            selectNextIncorrect();
-            Goal approach = assembleApproachGoal();
+            Goal approach = approachGoal(target, desired);
             if (approach == null) {
                 deferFailedTarget(target);
                 return;
@@ -799,11 +802,16 @@ public final class BuilderProcess implements IBuilderProcess {
         if (target == null) {
             publishedGoalTarget = null;
             publishedApproachGoal = null;
+            publishedTargetChunkLoaded = false;
             return null;
         }
+        boolean targetChunkLoaded = baritone.getPlayerContext().world()
+                .hasChunkAt(target);
         if (publishedApproachGoal == null
-                || !Objects.equals(publishedGoalTarget, target)) {
+                || !Objects.equals(publishedGoalTarget, target)
+                || publishedTargetChunkLoaded != targetChunkLoaded) {
             publishedGoalTarget = target.immutable();
+            publishedTargetChunkLoaded = targetChunkLoaded;
             publishedApproachGoal = assembleApproachGoal();
         }
         return publishedApproachGoal;
@@ -820,30 +828,107 @@ public final class BuilderProcess implements IBuilderProcess {
 
     private Goal approachGoal(BlockPos pos, BlockState wanted) {
         if (!baritone.getPlayerContext().world().hasChunkAt(pos)) {
-            return new GoalGetToBlock(pos);
+            // Stop outside the not-yet-loaded target chunk. Once it loads,
+            // publishedApproachGoal() replaces this coarse goal with exact,
+            // world-validated interaction stances.
+            return new GoalNear(pos, 12);
         }
-        BlockState current = baritone.getPlayerContext().world()
-                .getBlockState(pos);
-        if (!current.isAir()
-                && (wanted == null || !sameEnough(current, wanted))) {
-            return breakGoal(pos);
-        }
-        boolean allowSameLevel = !baritone.getPlayerContext().world()
-                .getBlockState(pos.above()).isAir();
-        for (Direction direction : Direction.values()) {
-            if (direction == Direction.UP) continue;
-            BlockPos support = pos.relative(direction);
-            BlockState supportState = baritone.getPlayerContext().world()
-                    .getBlockState(support);
-            if (!supportState.isAir()
-                    && !supportState.getCollisionShape(
+        List<BlockPos> stances = safeInteractionStances(pos);
+        return stances.isEmpty() ? null
+                : new GoalBuilderStance(pos, stances);
+    }
+
+    private List<BlockPos> safeInteractionStances(BlockPos target) {
+        BlockPos feet = baritone.getPlayerContext().playerFeet();
+        List<BlockPos> result = new ArrayList<>();
+        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        for (int dy = -2; dy <= 2; dy++) {
+            for (int dx = -4; dx <= 4; dx++) {
+                for (int dz = -4; dz <= 4; dz++) {
+                    BlockPos stance = target.offset(dx, dy, dz);
+                    if (stance.equals(target)
+                            || !finalSpacePassable(stance)
+                            || !finalSpacePassable(stance.above())
+                            || !currentSpacePassable(stance)
+                            || !currentSpacePassable(stance.above())) {
+                        continue;
+                    }
+                    BlockPos support = stance.below();
+                    BlockState supportState = baritone.getPlayerContext()
+                            .world().getBlockState(support);
+                    boolean supported = !supportState.getCollisionShape(
                             baritone.getPlayerContext().world(), support)
-                            .isEmpty()) {
-                return new GoalAdjacent(
-                        pos, support, allowSameLevel);
+                            .isEmpty();
+                    if (!supported
+                            && (!supportState.canBeReplaced()
+                            || !baritone.getInventoryController()
+                                    .hasGenericThrowaway())) {
+                        continue;
+                    }
+                    double eyeX = stance.getX() + 0.5D;
+                    double eyeY = stance.getY() + 1.62D;
+                    double eyeZ = stance.getZ() + 0.5D;
+                    double tx = target.getX() + 0.5D - eyeX;
+                    double ty = target.getY() + 0.5D - eyeY;
+                    double tz = target.getZ() + 0.5D - eyeZ;
+                    if (tx * tx + ty * ty + tz * tz
+                            > reach * reach) continue;
+                    if (!canSeeTargetFrom(stance, target)) continue;
+                    result.add(stance.immutable());
+                }
             }
         }
-        return new GoalPlace(pos);
+        result.sort(Comparator.comparingDouble(feet::distSqr));
+        return List.copyOf(result);
+    }
+
+    private boolean canSeeTargetFrom(
+            BlockPos stance, BlockPos target) {
+        Vec3 eye = new Vec3(stance.getX() + 0.5D,
+                stance.getY() + 1.62D, stance.getZ() + 0.5D);
+        Vec3 center = target.getCenter();
+        Vec3[] samples = {
+                center,
+                center.add(0.499D, 0D, 0D),
+                center.add(-0.499D, 0D, 0D),
+                center.add(0D, 0.499D, 0D),
+                center.add(0D, -0.499D, 0D),
+                center.add(0D, 0D, 0.499D),
+                center.add(0D, 0D, -0.499D)
+        };
+        for (Vec3 sample : samples) {
+            HitResult hit = baritone.getPlayerContext().world().clip(
+                    new ClipContext(eye, sample,
+                            ClipContext.Block.OUTLINE,
+                            ClipContext.Fluid.NONE,
+                            baritone.getPlayerContext().player()));
+            if (hit.getType() == HitResult.Type.MISS
+                    || hit instanceof BlockHitResult blockHit
+                    && blockHit.getBlockPos().equals(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean currentSpacePassable(BlockPos pos) {
+        BlockState state = baritone.getPlayerContext().world()
+                .getBlockState(pos);
+        return state.getCollisionShape(
+                baritone.getPlayerContext().world(), pos).isEmpty();
+    }
+
+    private boolean finalSpacePassable(BlockPos pos) {
+        int x = pos.getX() - origin.getX();
+        int y = pos.getY() - origin.getY();
+        int z = pos.getZ() - origin.getZ();
+        BlockState current = baritone.getPlayerContext().world()
+                .getBlockState(pos);
+        if (!schematic.inSchematic(x, y, z, current)) return true;
+        BlockState wanted = schematic.desiredState(
+                x, y, z, current, approxPlaceable);
+        return wanted == null || wanted.getCollisionShape(
+                baritone.getPlayerContext().world(), pos).isEmpty();
     }
 
     /**
@@ -852,48 +937,6 @@ public final class BuilderProcess implements IBuilderProcess {
      * several later placements; break goals remain a fallback.
      */
     private Goal assembleApproachGoal() {
-        List<Goal> placements = new ArrayList<>();
-        List<Goal> breaks = new ArrayList<>();
-        int limit = Math.max(1,
-                Baritone.settings().builderGoalBatchSize.value);
-        BlockPos feet = baritone.getPlayerContext().playerFeet();
-        List<BlockPos> nearest = nearestCandidates(feet, limit);
-        for (BlockPos pos : nearest) {
-            if (!baritone.getPlayerContext().world().hasChunkAt(pos)) {
-                placements.add(new GoalGetToBlock(pos));
-                continue;
-            }
-            BlockState current = baritone.getPlayerContext().world()
-                    .getBlockState(pos);
-            int localX = pos.getX() - origin.getX();
-            int localY = pos.getY() - origin.getY();
-            int localZ = pos.getZ() - origin.getZ();
-            if (!schematic.inSchematic(
-                    localX, localY, localZ, current)) continue;
-            BlockState wanted = schematic.desiredState(
-                    localX, localY, localZ, current, approxPlaceable);
-            if (wanted == null || sameEnough(current, wanted)) continue;
-            if (current.isAir()) {
-                if (canSatisfy(current, wanted)) {
-                    placements.add(approachGoal(pos, wanted));
-                }
-            } else if (!(current.getBlock() instanceof LiquidBlock)) {
-                breaks.add(approachGoal(pos, wanted));
-            } else if (current.getFluidState().isSource()
-                    && ((!wanted.isAir() && canPlace(wanted))
-                    || wanted.isAir() && baritone
-                            .getInventoryController()
-                            .hasGenericThrowaway())) {
-                placements.add(new GoalBlock(pos.above()));
-            }
-        }
-        Goal placementGoal = composite(placements);
-        Goal breakGoal = composite(breaks);
-        if (placementGoal != null && breakGoal != null) {
-            return new JankyGoalComposite(placementGoal, breakGoal);
-        }
-        if (placementGoal != null) return placementGoal;
-        if (breakGoal != null) return breakGoal;
         return target == null ? null : approachGoal(target);
     }
 
@@ -1965,7 +2008,7 @@ public final class BuilderProcess implements IBuilderProcess {
         if (goal == null) {
             return new PathingCommand(
                     null,
-                    PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
+                    PathingCommandType.DEFER);
         }
         return new PathingCommandContext(
                 goal,
@@ -1977,6 +2020,7 @@ public final class BuilderProcess implements IBuilderProcess {
         schematic = null; target = null; desired = null; name = null;
         publishedGoalTarget = null;
         publishedApproachGoal = null;
+        publishedTargetChunkLoaded = false;
         origin = null;
         paused = false;
         layer = Math.max(0, Baritone.settings().startAtLayer.value);
@@ -2001,7 +2045,8 @@ public final class BuilderProcess implements IBuilderProcess {
     public static class GoalBreak extends GoalGetToBlock {
         public GoalBreak(BlockPos pos) { super(pos); }
         @Override public boolean isInGoal(int x, int y, int z) {
-            return y <= this.y && super.isInGoal(x, y, z);
+            return !(x == this.x && y == this.y && z == this.z)
+                    && y <= this.y && super.isInGoal(x, y, z);
         }
     }
 
@@ -2046,7 +2091,8 @@ public final class BuilderProcess implements IBuilderProcess {
 
         @Override
         public double heuristic(int x, int y, int z) {
-            return primary.heuristic(x, y, z);
+            return Math.min(primary.heuristic(x, y, z),
+                    fallback.heuristic(x, y, z));
         }
 
         @Override
@@ -2060,6 +2106,67 @@ public final class BuilderProcess implements IBuilderProcess {
         @Override
         public int hashCode() {
             return Objects.hash(primary, fallback);
+        }
+    }
+
+    /**
+     * Exact, prevalidated player-feet positions from which the Builder may
+     * interact with one target. Unlike GoalGetToBlock it never treats the
+     * target block itself or an arbitrary future building cell as a goal.
+     */
+    public static final class GoalBuilderStance
+            implements Goal, IGoalRenderPos {
+        private final BlockPos target;
+        private final Set<BlockPos> stances;
+
+        public GoalBuilderStance(
+                BlockPos target, List<BlockPos> stances) {
+            this.target = target.immutable();
+            this.stances = Set.copyOf(stances);
+            if (this.stances.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Builder stance goal requires a stance");
+            }
+        }
+
+        @Override
+        public boolean isInGoal(int x, int y, int z) {
+            return stances.contains(new BlockPos(x, y, z));
+        }
+
+        @Override
+        public double heuristic(int x, int y, int z) {
+            double best = Double.POSITIVE_INFINITY;
+            for (BlockPos stance : stances) {
+                best = Math.min(best, GoalBlock.calculate(
+                        x - stance.getX(), y - stance.getY(),
+                        z - stance.getZ()));
+            }
+            return best;
+        }
+
+        @Override
+        public BlockPos getGoalPos() {
+            return target;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof GoalBuilderStance that)) return false;
+            return target.equals(that.target)
+                    && stances.equals(that.stances);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(target, stances);
+        }
+
+        @Override
+        public String toString() {
+            return "GoalBuilderStance{target=" + target
+                    + ", stances=" + stances.size() + "}";
         }
     }
 
