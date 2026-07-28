@@ -56,6 +56,18 @@ public final class Settings {
             new Setting<>(2D);
     public final Setting<Integer> builderTickScanRadius =
             new Setting<>(5);
+    /** Maximum number of actionable Builder positions combined into one
+     * pathing goal. Keeps the original multi-goal behavior without allowing a
+     * very large schematic to dominate a server tick. */
+    public final Setting<Integer> builderGoalBatchSize =
+            new Setting<>(64);
+    /** Kept for Builder API/settings compatibility. On a dedicated server the
+     * completion notification is delivered through the command feedback
+     * channel instead of a client desktop notification. */
+    public final Setting<Boolean> notificationOnBuildFinished =
+            new Setting<>(true);
+    public final Setting<String> schematicFallbackExtension =
+            new Setting<>("schematic");
     public final Setting<Boolean> distanceTrim = new Setting<>(true);
 
     // Client rendering values are evaluated on the server and transported
@@ -136,6 +148,9 @@ public final class Settings {
             new Setting<>(1000L);
     public final Setting<Long> collectItemPlanAheadFailureTimeoutMS =
             new Setting<>(6000L);
+    /** Maximum spherical container-search distance in blocks. */
+    public final Setting<Integer> collectItemMaxDistance =
+            new Setting<>(128);
     public final Setting<Long> planAheadPrimaryTimeoutMS = new Setting<>(4000L);
     public final Setting<Long> planAheadFailureTimeoutMS = new Setting<>(5000L);
     public final Setting<Integer> pathingFailureRetryCount = new Setting<>(3);
@@ -151,6 +166,12 @@ public final class Settings {
             new Setting<>(true);
     public final Setting<Boolean> blacklistClosestOnFailure = new Setting<>(true);
     public final Setting<Integer> mineMaxOreLocationsCount = new Setting<>(64);
+    /** Limits competing distant goals in one A* search. Failed batches rotate
+     * without blacklisting their targets. */
+    public final Setting<Integer> mineGoalCompositeBatchSize =
+            new Setting<>(8);
+    public final Setting<Integer> mineGoalBatchingDistance =
+            new Setting<>(96);
     public final Setting<Integer> minYLevelWhileMining = new Setting<>(0);
     public final Setting<Integer> maxYLevelWhileMining = new Setting<>(2031);
     public final Setting<Boolean> allowOnlyExposedOres = new Setting<>(false);

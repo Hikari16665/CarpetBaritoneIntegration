@@ -29,18 +29,26 @@ public final class SubstituteSchematic extends AbstractSchematic {
     @Override
     public BlockState desiredState(int x, int y, int z, BlockState current, List<BlockState> placeable) {
         BlockState desired = schematic.desiredState(x, y, z, current, placeable);
+        if (desired == null) {
+            return null;
+        }
         List<Block> substitutes = substitutions.get(desired.getBlock());
         if (substitutes == null || substitutes.isEmpty()) {
             return desired;
         }
-        if (!(current.getBlock() instanceof AirBlock) && substitutes.contains(current.getBlock())) {
+        if (current != null
+                && !(current.getBlock() instanceof AirBlock)
+                && substitutes.contains(current.getBlock())) {
             return withBlock(desired, current.getBlock());
         }
         for (Block substitute : substitutes) {
             if (substitute instanceof AirBlock) {
-                return current.getBlock() instanceof AirBlock ? current : Blocks.AIR.defaultBlockState();
+                return current != null
+                        && current.getBlock() instanceof AirBlock
+                        ? current : Blocks.AIR.defaultBlockState();
             }
-            for (BlockState candidate : placeable) {
+            for (BlockState candidate : placeable == null
+                    ? List.<BlockState>of() : placeable) {
                 if (candidate.is(substitute)) {
                     return withBlock(desired, substitute);
                 }

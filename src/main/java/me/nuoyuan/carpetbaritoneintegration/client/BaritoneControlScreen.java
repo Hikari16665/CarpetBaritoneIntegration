@@ -59,6 +59,9 @@ public final class BaritoneControlScreen extends AbstractScreen {
                 x, 0, 150, 22, Component.literal(command.title),
                 button -> minecraft.setScreen(command == ControlCommand.SETTINGS
                         ? new SettingsListScreen(this)
+                        : command.kind == Kind.MULTI_BLOCK
+                        || command.kind == Kind.MULTI_ITEM_AMOUNT_PLAYER
+                        ? new MultiItemCommandScreen(this, command)
                         : command.kind.structured()
                         ? new StructuredCommandScreen(this, command)
                         : new CommandParameterScreen(this, command))));
@@ -81,15 +84,21 @@ public final class BaritoneControlScreen extends AbstractScreen {
                 Category.NAVIGATION, "可选：x y z / clear"),
         PATH("path", "执行当前目标", Kind.NONE, Category.NAVIGATION),
 
-        MINE("mine", "挖掘方块", Kind.ITEM, Category.TASK),
-        AREA_MINE("areamine", "持续区域挖掘", Kind.ITEM, Category.TASK),
+        MINE("mine", "挖掘方块", Kind.MULTI_BLOCK, Category.TASK),
+        AREA_MINE("areamine", "持续区域挖掘",
+                Kind.MULTI_BLOCK, Category.TASK),
         COLLECT_ITEM("collectItem", "收集并交付物品",
-                Kind.ITEM_AMOUNT_PLAYER, Category.TASK),
+                Kind.MULTI_ITEM_AMOUNT_PLAYER, Category.TASK),
         CLEAN("clean", "清空现有选区", Kind.NONE, Category.TASK),
         FARM("farm", "自动收菜", Kind.OPTIONAL_INTEGER,
                 Category.TASK, "可选：范围"),
         BUILD("build", "建造", Kind.BUILD,
                 Category.TASK, "名称及构建参数"),
+        SCHEMATICA("schematica", "服务器最近蓝图",
+                Kind.NONE, Category.TASK),
+        LITEMATICA("litematica", "服务器 Litematica",
+                Kind.OPTIONAL_INTEGER, Category.TASK,
+                "可选：从 1 开始的蓝图索引"),
         ELYTRA("elytra", "鞘翅飞行", Kind.POSITION, Category.TASK),
         EXPLORE("explore", "探索世界", Kind.OPTIONAL_XZ,
                 Category.TASK, "可选：x z"),
@@ -168,13 +177,15 @@ public final class BaritoneControlScreen extends AbstractScreen {
 
     enum Kind {
         NONE, POSITION, SELECTION, ITEM, PLAYER,
-        ITEM_AMOUNT_PLAYER, GENERIC, INTEGER, OPTIONAL_INTEGER,
+        ITEM_AMOUNT_PLAYER, MULTI_BLOCK, MULTI_ITEM_AMOUNT_PLAYER,
+        GENERIC, INTEGER, OPTIONAL_INTEGER,
         OPTIONAL_XZ, TOGGLE, TUNNEL, GOAL, POSITION_ITEM, TRASH,
         SELECTION_ACTION, WAYPOINT, CACHE, COMMAND_PICKER, BUILD;
 
         boolean structured() {
             return switch (this) {
-                case INTEGER, OPTIONAL_INTEGER, OPTIONAL_XZ, TOGGLE,
+                case MULTI_BLOCK, MULTI_ITEM_AMOUNT_PLAYER,
+                        INTEGER, OPTIONAL_INTEGER, OPTIONAL_XZ, TOGGLE,
                         TUNNEL, GOAL, POSITION_ITEM, TRASH,
                         SELECTION_ACTION, WAYPOINT, CACHE,
                         COMMAND_PICKER, BUILD -> true;

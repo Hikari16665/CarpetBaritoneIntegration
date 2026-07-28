@@ -2,6 +2,8 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 
 import me.nuoyuan.carpetbaritoneintegration.network.PathNetwork;
 import me.nuoyuan.carpetbaritoneintegration.network.PathSnapshotPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.CommandResultPayload;
+import net.minecraft.network.chat.Component;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -26,6 +28,16 @@ public final class CarpetBaritoneIntegrationClient
                         .ControlOptionsPayload.TYPE,
                 (payload, context) -> context.client().execute(
                         () -> ClientControlOptions.accept(payload)));
+        ClientPlayNetworking.registerGlobalReceiver(
+                CommandResultPayload.TYPE, (payload, context) ->
+                        context.client().execute(() -> {
+                            if (!payload.success()
+                                    && context.client().player != null) {
+                                context.client().player.displayClientMessage(
+                                        Component.literal("[CBI] "
+                                                + payload.message()), false);
+                            }
+                        }));
         ClientPlayConnectionEvents.DISCONNECT.register(
                 (handler, client) -> {
                     ClientPathRenderer.clear();

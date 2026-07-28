@@ -6,7 +6,9 @@ import com.daqem.uilib.gui.component.item.ItemComponent;
 import com.daqem.uilib.gui.component.text.TextComponent;
 import com.daqem.uilib.gui.widget.ButtonWidget;
 import com.daqem.uilib.gui.widget.EditBoxWidget;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.WaypointOption;
+import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.SyncmaticaOption;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -23,6 +25,11 @@ final class StructuredCommandScreen extends AbstractScreen {
     private int fakeIndex;
     private ButtonWidget fakeButton;
     private ButtonWidget modeButton;
+    private ButtonWidget waypointSelector;
+    private ButtonWidget buildMainHand;
+    private ButtonWidget buildItemPicker;
+    private ButtonWidget buildFileSelector;
+    private ButtonWidget syncmaticaSelector;
     private EditBoxWidget a;
     private EditBoxWidget b;
     private EditBoxWidget c;
@@ -35,6 +42,8 @@ final class StructuredCommandScreen extends AbstractScreen {
     private boolean optionalEnabled;
     private List<String> modes = List.of();
     private int waypointIndex;
+    private int schematicFileIndex;
+    private int syncmaticaIndex;
 
     StructuredCommandScreen(
             Screen parent, BaritoneControlScreen.ControlCommand command) {
@@ -82,6 +91,7 @@ final class StructuredCommandScreen extends AbstractScreen {
             case BUILD -> initBuild(left, row);
             default -> { }
         }
+        updateModeVisibility();
         addWidget(new ButtonWidget(left, top + 178, 100, 22,
                 Component.literal("返回"), button ->
                 minecraft.setScreen(parent)));
@@ -131,25 +141,29 @@ final class StructuredCommandScreen extends AbstractScreen {
         a = edit(x, y, 72, "X", currentX());
         b = edit(x + 78, y, 72, "Y", currentY());
         c = edit(x + 156, y, 72, "Z", currentZ());
-        d = edit(x, y + 30, 228, "方块 ID", "stone");
+        d = edit(x, y + 30, 196, "方块 ID", "stone");
         d.setResponder(this::refreshPreview);
-        addWidget(new ButtonWidget(x + 234, y, 86, 20,
-                Component.literal("使用主手"), button -> useMainHand()));
-        preview = new ItemComponent(x + 298, y + 28,
+        addWidget(new ButtonWidget(x + 202, y + 30, 57, 20,
+                Component.literal("主手"), button -> useMainHand()));
+        addWidget(new ButtonWidget(x + 263, y + 30, 57, 20,
+                Component.literal("选择"), button -> pickItem(true)));
+        preview = new ItemComponent(x + 322, y + 32,
                 ItemStack.EMPTY, true);
         addComponent(preview);
     }
 
     private void initTrash(int x, int y) {
         initModes(x, y, "list", "add", "remove");
-        a = edit(x, y + 30, 232, "物品 ID", "cobblestone");
+        a = edit(x, y + 30, 196, "物品 ID", "cobblestone");
         a.setResponder(this::refreshPreview);
-        addWidget(new ButtonWidget(x + 238, y + 30, 82, 20,
-                Component.literal("使用主手"), button -> {
-                    useMainHandInto(a);
-                    refreshPreview(a.getValue());
-                }));
-        preview = new ItemComponent(x + 298, y + 56,
+        addWidget(new ButtonWidget(x + 202, y + 30, 57, 20,
+                Component.literal("主手"), button -> {
+            useMainHandInto(a);
+            refreshPreview(a.getValue());
+        }));
+        addWidget(new ButtonWidget(x + 263, y + 30, 57, 20,
+                Component.literal("选择"), button -> pickItem(false)));
+        preview = new ItemComponent(x + 322, y + 32,
                 ItemStack.EMPTY, true);
         addComponent(preview);
     }
@@ -158,11 +172,12 @@ final class StructuredCommandScreen extends AbstractScreen {
         initModes(x, y, "goto", "save", "delete", "list");
         a = edit(x, y + 30, 154, "路径点名称", "point");
         modes = List.of("goto", "save", "delete", "list");
-        addWidget(new ButtonWidget(x + 160, y + 30, 160, 20,
+        waypointSelector = new ButtonWidget(x + 160, y + 30, 160, 20,
                 Component.literal("切换已有路径点"), button -> {
                     waypointIndex++;
                     refreshWaypoint();
-                }));
+                });
+        addWidget(waypointSelector);
         b = edit(x, y + 58, 100, "X", currentX());
         c = edit(x + 110, y + 58, 100, "Y", currentY());
         d = edit(x + 220, y + 58, 100, "Z", currentZ());
@@ -177,13 +192,14 @@ final class StructuredCommandScreen extends AbstractScreen {
                 Component.empty(), button -> {
                     mode = (mode + 1) % modes.size();
                     refreshMode();
+                    updateModeVisibility();
                 });
         addWidget(modeButton);
         refreshMode();
     }
 
     private void initBuild(int x, int y) {
-        initModes(x, y, "fill", "clear", "file");
+        initModes(x, y, "fill", "clear", "file", "syncmatica");
         a = edit(x, y + 26, 100, "方块ID / 蓝图路径", "stone");
         b = edit(x + 106, y + 26, 68, "X1", currentX());
         c = edit(x + 180, y + 26, 68, "Y1", currentY());
@@ -191,6 +207,36 @@ final class StructuredCommandScreen extends AbstractScreen {
         e = edit(x + 106, y + 52, 68, "X2", currentX());
         f = edit(x + 180, y + 52, 68, "Y2", currentY());
         g = edit(x + 254, y + 52, 66, "Z2", currentZ());
+        buildMainHand = new ButtonWidget(x, y + 80, 100, 20,
+                Component.literal("使用主手方块"), button ->
+                useMainHandInto(a));
+        buildItemPicker = new ButtonWidget(x + 106, y + 80, 100, 20,
+                Component.literal("选择填充方块"), button ->
+                minecraft.setScreen(new ItemPickerScreen(this, true,
+                        value -> a.setValue(value))));
+        addWidget(buildMainHand);
+        addWidget(buildItemPicker);
+        buildFileSelector = new ButtonWidget(x, y + 80, 320, 20,
+                Component.literal("服务器蓝图目录为空"), button -> {
+                    List<String> files =
+                            ClientControlOptions.schematicFiles();
+                    if (files.isEmpty()) return;
+                    int current = a == null ? -1
+                            : files.indexOf(a.getValue());
+                    schematicFileIndex = current < 0 ? 0
+                            : (current + 1) % files.size();
+                    selectSchematicFile();
+                });
+        addWidget(buildFileSelector);
+        syncmaticaSelector = new ButtonWidget(x, y + 80, 320, 20,
+                Component.empty(), button -> {
+                    List<SyncmaticaOption> values =
+                            ClientControlOptions.syncmaticaSchematics();
+                    if (values.isEmpty()) return;
+                    syncmaticaIndex = (syncmaticaIndex + 1) % values.size();
+                    refreshSyncmaticaSelector();
+                });
+        addWidget(syncmaticaSelector);
     }
 
     private void initModes(int x, int y, String... values) {
@@ -199,6 +245,7 @@ final class StructuredCommandScreen extends AbstractScreen {
                 Component.empty(), button -> {
                     mode = (mode + 1) % modes.size();
                     refreshMode();
+                    updateModeVisibility();
                 });
         addWidget(modeButton);
         refreshMode();
@@ -226,6 +273,52 @@ final class StructuredCommandScreen extends AbstractScreen {
                 + "（点击切换）"));
     }
 
+    private void updateModeVisibility() {
+        if (modes.isEmpty()) return;
+        String selected = modes.get(Math.floorMod(mode, modes.size()));
+        if (command.kind == BaritoneControlScreen.Kind.BUILD
+                && a != null) {
+            boolean file = selected.equals("file");
+            boolean syncmatica = selected.equals("syncmatica");
+            boolean fill = selected.equals("fill");
+            a.visible = file || fill;
+            b.visible = c.visible = d.visible = !syncmatica;
+            e.visible = f.visible = g.visible = !file && !syncmatica;
+            a.setHint(Component.literal(file
+                    ? "Sponge .schem 文件路径" : "填充方块 ID"));
+            if (file && a.getValue().equals("stone")) {
+                a.setValue("example.schem");
+            }
+            if (buildMainHand != null) buildMainHand.visible = fill;
+            if (buildItemPicker != null) buildItemPicker.visible = fill;
+            if (buildFileSelector != null) {
+                buildFileSelector.visible = file;
+                refreshSchematicSelector();
+            }
+            if (syncmaticaSelector != null) {
+                syncmaticaSelector.visible = syncmatica;
+                refreshSyncmaticaSelector();
+            }
+        } else if (command.kind == BaritoneControlScreen.Kind.GOAL
+                && a != null) {
+            boolean coordinates = selected.equals("set");
+            a.visible = b.visible = c.visible = coordinates;
+        } else if (command.kind == BaritoneControlScreen.Kind.TRASH
+                && a != null) {
+            a.visible = !selected.equals("list");
+        } else if (command.kind
+                == BaritoneControlScreen.Kind.WAYPOINT && a != null) {
+            boolean save = selected.equals("save");
+            boolean existing = selected.equals("goto")
+                    || selected.equals("delete");
+            a.visible = save;
+            b.visible = c.visible = d.visible = save;
+            if (waypointSelector != null) {
+                waypointSelector.visible = existing;
+            }
+        }
+    }
+
     private void refreshWaypoint() {
         List<WaypointOption> values =
                 ClientControlOptions.waypoints(fakeName());
@@ -251,6 +344,11 @@ final class StructuredCommandScreen extends AbstractScreen {
         refreshFake();
         if (command.kind == BaritoneControlScreen.Kind.WAYPOINT
                 && a != null) refreshWaypoint();
+        if (command.kind == BaritoneControlScreen.Kind.BUILD
+                && a != null) {
+            refreshSchematicSelector();
+            refreshSyncmaticaSelector();
+        }
     }
 
     private String fakeName() {
@@ -259,12 +357,61 @@ final class StructuredCommandScreen extends AbstractScreen {
                 : fakes.get(Math.floorMod(fakeIndex, fakes.size()));
     }
 
+    private void refreshSchematicSelector() {
+        if (buildFileSelector == null) return;
+        List<String> files = ClientControlOptions.schematicFiles();
+        buildFileSelector.active = !files.isEmpty();
+        if (files.isEmpty()) {
+            buildFileSelector.setMessage(
+                    Component.literal("服务器 schematics 目录中没有蓝图"));
+            return;
+        }
+        String current = a == null ? "" : a.getValue();
+        int currentIndex = files.indexOf(current);
+        if (currentIndex >= 0) schematicFileIndex = currentIndex;
+        schematicFileIndex = Math.floorMod(
+                schematicFileIndex, files.size());
+        String selected = files.get(schematicFileIndex);
+        String label = selected.length() > 42
+                ? "…" + selected.substring(selected.length() - 41)
+                : selected;
+        buildFileSelector.setMessage(
+                Component.literal("服务器蓝图: " + label));
+    }
+
+    private void selectSchematicFile() {
+        List<String> files = ClientControlOptions.schematicFiles();
+        if (files.isEmpty() || a == null) return;
+        schematicFileIndex = Math.floorMod(
+                schematicFileIndex, files.size());
+        a.setValue(files.get(schematicFileIndex));
+        refreshSchematicSelector();
+    }
+
+    private void refreshSyncmaticaSelector() {
+        if (syncmaticaSelector == null) return;
+        List<SyncmaticaOption> values =
+                ClientControlOptions.syncmaticaSchematics();
+        syncmaticaSelector.active = !values.isEmpty();
+        if (values.isEmpty()) {
+            syncmaticaSelector.setMessage(Component.literal(
+                    "没有可用的 Syncmatica 共享投影"));
+            return;
+        }
+        syncmaticaIndex = Math.floorMod(syncmaticaIndex, values.size());
+        SyncmaticaOption selected = values.get(syncmaticaIndex);
+        String label = selected.name() + " @ " + selected.x() + ", "
+                + selected.y() + ", " + selected.z();
+        if (label.length() > 48) label = label.substring(0, 47) + "…";
+        syncmaticaSelector.setMessage(Component.literal(
+                "共享投影: " + label + "（点击切换）"));
+    }
+
     private void submit() {
         String args = arguments();
         if (!fakeName().isEmpty() && minecraft.getConnection() != null) {
-            minecraft.getConnection().sendCommand("tell " + fakeName()
-                    + " baritone " + command.command
-                    + (args.isBlank() ? "" : " " + args));
+            ClientCommandSender.send(
+                    fakeName(), command.command, args);
         }
         minecraft.setScreen(parent);
     }
@@ -296,8 +443,16 @@ final class StructuredCommandScreen extends AbstractScreen {
 
     private String buildArguments() {
         String action = modes.get(mode);
+        if (action.equals("syncmatica")) {
+            List<SyncmaticaOption> values =
+                    ClientControlOptions.syncmaticaSchematics();
+            if (values.isEmpty()) return "syncmatica unavailable";
+            return "syncmatica " + values.get(Math.floorMod(
+                    syncmaticaIndex, values.size())).id();
+        }
         if (action.equals("file")) {
-            return "file " + value(a) + " " + value(b) + " "
+            return "file " + StringArgumentType.escapeIfRequired(
+                    value(a)) + " " + value(b) + " "
                     + value(c) + " " + value(d);
         }
         String coordinates = value(b) + " " + value(c) + " "
@@ -335,6 +490,14 @@ final class StructuredCommandScreen extends AbstractScreen {
                 minecraft.player.getMainHandItem().getItem());
         box.setValue(id.getNamespace().equals("minecraft")
                 ? id.getPath() : id.toString());
+    }
+
+    private void pickItem(boolean blocksOnly) {
+        minecraft.setScreen(new ItemPickerScreen(this, blocksOnly, value -> {
+            EditBoxWidget current = blocksOnly ? d : a;
+            current.setValue(value);
+            refreshPreview(value);
+        }));
     }
 
     private void refreshPreview(String raw) {

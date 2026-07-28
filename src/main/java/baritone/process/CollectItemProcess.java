@@ -10,6 +10,7 @@ import baritone.api.process.PathingCommandType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
@@ -25,8 +26,10 @@ import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -47,6 +50,9 @@ public final class CollectItemProcess implements ICollectItemProcess {
     private final Set<BlockPos> failedContainers = new HashSet<>();
     private Item item;
     private int amount;
+    private final Map<Item, Integer> requestedItems = new LinkedHashMap<>();
+    private final Map<Item, Integer> deliveredItems = new LinkedHashMap<>();
+    private final Set<Item> exhaustedItems = new HashSet<>();
     private UUID recipientId;
     private Consumer<String> feedback = ignored -> { };
     private State state;
@@ -70,18 +76,66 @@ public final class CollectItemProcess implements ICollectItemProcess {
     @Override
     public void collect(Item item, int amount, ServerPlayer recipient,
                         Consumer<String> feedback) {
+        collect(Map.of(item, amount), recipient, feedback);
+    }
+
+    @Override
+    public void collect(Map<Item, Integer> items, ServerPlayer recipient,
+                        Consumer<String> feedback) {
         onLostControl();
-        this.item = item;
-        this.amount = amount;
+        items.forEach((requested, count) -> {
+            if (requested != null && count != null && count > 0) {
+                requestedItems.merge(requested, count, Integer::sum);
+            }
+        });
+        if (requestedItems.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "At least one positive item requirement is required");
+        }
         this.recipientId = recipient.getUUID();
         this.feedback = feedback == null ? ignored -> { } : feedback;
-        this.scanRadius = baritone.getPlayerContext().server()
-                .getPlayerList().getViewDistance();
-        this.scanBlockRadius = scanRadius * 16;
+        this.scanBlockRadius = Math.max(1,
+                baritone.settings().collectItemMaxDistance.value);
+        this.scanRadius = Math.max(1,
+                (scanBlockRadius + 15) / 16);
+        advanceToNextItem();
+    }
+
+    private void advanceToNextItem() {
+        Map.Entry<Item, Integer> next = requestedItems.entrySet().stream()
+                .filter(entry -> !exhaustedItems.contains(entry.getKey()))
+                .filter(entry -> deliveredItems.getOrDefault(
+                        entry.getKey(), 0) < entry.getValue())
+                .findFirst().orElse(null);
+        if (next == null) {
+            finishAllItems();
+            return;
+        }
+        item = next.getKey();
+        amount = next.getValue();
+        deliveredAmount = deliveredItems.getOrDefault(item, 0);
+        failedContainers.clear();
         beginSearch();
-        if (availableInInventory() >= amount) {
+        if (deliveredAmount + availableInInventory() >= amount) {
             beginDelivery();
         }
+    }
+
+    private void finishCurrentItem(boolean exhausted) {
+        deliveredItems.put(item, deliveredAmount);
+        if (exhausted) exhaustedItems.add(item);
+        advanceToNextItem();
+    }
+
+    private void finishAllItems() {
+        String summary = requestedItems.entrySet().stream()
+                .map(entry -> deliveredItems.getOrDefault(entry.getKey(), 0)
+                        + "/" + entry.getValue() + " "
+                        + BuiltInRegistries.ITEM.getKey(entry.getKey()))
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+        feedback.accept("收集任务结束：" + summary);
+        onLostControl();
     }
 
     public void serverTick() {
@@ -169,11 +223,11 @@ public final class CollectItemProcess implements ICollectItemProcess {
                 feedback.accept("目标物品没有找全：已投递 "
                         + deliveredAmount + "/" + amount + "，还缺 "
                         + (amount - deliveredAmount));
-                onLostControl();
+                finishCurrentItem(true);
             } else {
                 feedback.accept("已扫描加载范围，没有找到目标物品（0/"
                         + amount + "）");
-                onLostControl();
+                finishCurrentItem(true);
             }
             return;
         }
@@ -259,14 +313,14 @@ public final class CollectItemProcess implements ICollectItemProcess {
         currentGoal = null;
         if (deliveredAmount + availableInInventory() >= amount) {
             beginDelivery();
-        } else if (inventoryBlocked && availableInInventory() > 0) {
+        } else if (inventoryBlocked && availableRequestedInInventory() > 0) {
             feedback.accept("背包已满，先投递当前批次 "
-                    + availableInInventory() + " 个目标物品");
+                    + availableRequestedInInventory() + " 个目标物品");
             incompleteBecauseInventoryFull = true;
             beginDelivery();
         } else if (inventoryBlocked) {
-            feedback.accept("背包已满且没有可先投递的目标物品，任务停止");
-            onLostControl();
+            feedback.accept("背包已满且当前物品无法取出，跳过该物品");
+            finishCurrentItem(true);
         } else {
             beginSearch();
         }
@@ -295,9 +349,49 @@ public final class CollectItemProcess implements ICollectItemProcess {
          * every related loose item and every target item inside carried
          * shulkers is handed over, including surplus acquired in the batch.
          */
-        int delivered = 0;
         NonNullList<ItemStack> inventory =
                 player.getInventory().getNonEquipmentItems();
+        Item activeItem = item;
+        int delivered = 0;
+        for (Item requested : requestedItems.keySet()) {
+            item = requested;
+            int dropped = dropCurrentRelated(inventory);
+            deliveredItems.merge(requested, dropped, Integer::sum);
+            if (requested == activeItem) delivered = dropped;
+        }
+        item = activeItem;
+        deliveredAmount = deliveredItems.getOrDefault(item, 0);
+        player.inventoryMenu.broadcastChanges();
+        if (deliveredAmount >= amount) {
+            feedback.accept("已向 " + recipient.getScoreboardName()
+                    + " 累计投递目标物品 " + deliveredAmount
+                    + (deliveredAmount > amount
+                    ? "（包含整盒潜影盒，实际数量超过要求）" : ""));
+            finishCurrentItem(false);
+        } else if (incompleteBecauseInventoryFull) {
+            feedback.accept("已向 " + recipient.getScoreboardName()
+                    + " 交付一批 " + delivered + " 个，累计 "
+                    + deliveredAmount + "/" + amount
+                    + "，返回交付起点后继续收集");
+            state = State.RETURNING;
+            currentGoal = deliveryStart == null ? null
+                    : new GoalNear(deliveryStart, 1);
+        } else if (sourcesExhausted) {
+            feedback.accept("目标物品没有找全：已向 "
+                    + recipient.getScoreboardName() + " 投递 "
+                    + deliveredAmount + "/" + amount + "，还缺 "
+                    + (amount - deliveredAmount));
+            finishCurrentItem(true);
+        } else {
+            feedback.accept("已向 " + recipient.getScoreboardName()
+                    + " 投递一批 " + delivered + " 个，累计 "
+                    + deliveredAmount + "/" + amount + "，继续收集");
+            beginSearch();
+        }
+    }
+
+    private int dropCurrentRelated(NonNullList<ItemStack> inventory) {
+        int delivered = 0;
         List<Integer> boxes = new ArrayList<>();
         for (int slot = 0; slot < inventory.size(); slot++) {
             if (isFullTargetShulker(inventory.get(slot))) boxes.add(slot);
@@ -330,34 +424,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
             dropTowardRecipient(dropped);
             delivered += take;
         }
-        player.inventoryMenu.broadcastChanges();
-        deliveredAmount += delivered;
-        if (deliveredAmount >= amount) {
-            feedback.accept("已向 " + recipient.getScoreboardName()
-                    + " 累计投递目标物品 " + deliveredAmount
-                    + (deliveredAmount > amount
-                    ? "（包含整盒潜影盒，实际数量超过要求）" : ""));
-            onLostControl();
-        } else if (incompleteBecauseInventoryFull) {
-            feedback.accept("已向 " + recipient.getScoreboardName()
-                    + " 交付一批 " + delivered + " 个，累计 "
-                    + deliveredAmount + "/" + amount
-                    + "，返回交付起点后继续收集");
-            state = State.RETURNING;
-            currentGoal = deliveryStart == null ? null
-                    : new GoalNear(deliveryStart, 1);
-        } else if (sourcesExhausted) {
-            feedback.accept("目标物品没有找全：已向 "
-                    + recipient.getScoreboardName() + " 投递 "
-                    + deliveredAmount + "/" + amount + "，还缺 "
-                    + (amount - deliveredAmount));
-            onLostControl();
-        } else {
-            feedback.accept("已向 " + recipient.getScoreboardName()
-                    + " 投递一批 " + delivered + " 个，累计 "
-                    + deliveredAmount + "/" + amount + "，继续收集");
-            beginSearch();
-        }
+        return delivered;
     }
 
     private void dropTowardRecipient(ItemStack stack) {
@@ -480,6 +547,10 @@ public final class CollectItemProcess implements ICollectItemProcess {
     }
 
     private int boxedTargetCount(ItemStack stack) {
+        return boxedItemCount(stack, item);
+    }
+
+    private int boxedItemCount(ItemStack stack, Item targetItem) {
         if (!(stack.getItem() instanceof BlockItem blockItem)
                 || !(blockItem.getBlock() instanceof ShulkerBoxBlock)) {
             return 0;
@@ -487,7 +558,8 @@ public final class CollectItemProcess implements ICollectItemProcess {
         ItemContainerContents contents =
                 stack.getOrDefault(DataComponents.CONTAINER,
                         ItemContainerContents.EMPTY);
-        return contents.nonEmptyStream().filter(inner -> inner.is(item))
+        return contents.nonEmptyStream()
+                .filter(inner -> inner.is(targetItem))
                 .mapToInt(ItemStack::getCount).sum();
     }
 
@@ -553,7 +625,9 @@ public final class CollectItemProcess implements ICollectItemProcess {
     }
 
     public boolean isProtectedStack(ItemStack stack) {
-        return isActive() && (stack.is(item) || boxedTargetCount(stack) > 0);
+        return isActive() && requestedItems.keySet().stream().anyMatch(
+                requested -> stack.is(requested)
+                        || boxedItemCount(stack, requested) > 0);
     }
 
     private int availableInInventory() {
@@ -564,6 +638,20 @@ public final class CollectItemProcess implements ICollectItemProcess {
                         .getNonEquipmentItems()) {
             if (stack.is(item)) result += stack.getCount();
             result += boxedTargetCount(stack);
+        }
+        return result;
+    }
+
+    private int availableRequestedInInventory() {
+        if (!isActive()) return 0;
+        int result = 0;
+        for (ItemStack stack :
+                baritone.getPlayerContext().player().getInventory()
+                        .getNonEquipmentItems()) {
+            for (Item requested : requestedItems.keySet()) {
+                if (stack.is(requested)) result += stack.getCount();
+                result += boxedItemCount(stack, requested);
+            }
         }
         return result;
     }
@@ -624,6 +712,9 @@ public final class CollectItemProcess implements ICollectItemProcess {
         item = null;
         amount = 0;
         deliveredAmount = 0;
+        requestedItems.clear();
+        deliveredItems.clear();
+        exhaustedItems.clear();
         sourcesExhausted = false;
         incompleteBecauseInventoryFull = false;
         recipientId = null;

@@ -12,6 +12,7 @@ import baritone.api.pathing.goals.GoalYLevel;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.interfaces.IGoalRenderPos;
 import baritone.server.ServerPathExecutor;
+import baritone.process.BuilderProcess;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,6 +26,7 @@ import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 
 /** Builds and sends bounded path snapshots to nearby visible players. */
 public final class ServerPathSync {
@@ -77,10 +79,16 @@ public final class ServerPathSync {
                 next,
                 calculating.best(),
                 calculating.recent(),
-                executorPositions(baritone.getPathExecutor(),
-                        PositionKind.BREAK),
-                executorPositions(baritone.getPathExecutor(),
-                        PositionKind.PLACE),
+                mergePositions(
+                        executorPositions(baritone.getPathExecutor(),
+                                PositionKind.BREAK),
+                        baritone.getBuilderProcess()
+                                .renderTargets(false, MAX_POINTS)),
+                mergePositions(
+                        executorPositions(baritone.getPathExecutor(),
+                                PositionKind.PLACE),
+                        baritone.getBuilderProcess()
+                                .renderTargets(true, MAX_POINTS)),
                 executorPositions(baritone.getPathExecutor(),
                         PositionKind.WALK_INTO),
                 selections,
@@ -168,6 +176,18 @@ public final class ServerPathSync {
                 .toList();
     }
 
+    private static List<BlockPos> mergePositions(
+            List<BlockPos> first, List<BlockPos> second) {
+        if (first.isEmpty()) {
+            return second.size() <= MAX_POINTS
+                    ? second : second.subList(0, MAX_POINTS);
+        }
+        LinkedHashSet<BlockPos> merged = new LinkedHashSet<>();
+        merged.addAll(first);
+        merged.addAll(second);
+        return merged.stream().limit(MAX_POINTS).toList();
+    }
+
     private static List<BlockPos> selectionCorners(Baritone baritone) {
         List<BlockPos> corners = new ArrayList<>();
         for (baritone.api.selection.ISelection selection
@@ -221,6 +241,11 @@ public final class ServerPathSync {
                 appendGoal(child, inverted, fake, result);
                 if (result.size() >= 256) break;
             }
+            return;
+        }
+        if (goal instanceof BuilderProcess.JankyGoalComposite value) {
+            appendGoal(value.primary(), inverted, fake, result);
+            appendGoal(value.fallback(), inverted, fake, result);
             return;
         }
         if (goal instanceof GoalXZ value) {

@@ -8,10 +8,13 @@ import net.minecraft.client.Minecraft;
 import java.util.List;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.SettingOption;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.WaypointOption;
+import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.SyncmaticaOption;
 
 final class ClientControlOptions {
     private static List<String> fakePlayers = List.of();
     private static List<String> onlinePlayers = List.of();
+    private static List<String> schematicFiles = List.of();
+    private static List<SyncmaticaOption> syncmaticaSchematics = List.of();
     private static List<SettingOption> settings = List.of();
     private static List<WaypointOption> waypoints = List.of();
     private static boolean received;
@@ -31,6 +34,8 @@ final class ClientControlOptions {
     static void accept(ControlOptionsPayload payload) {
         fakePlayers = payload.fakePlayers();
         onlinePlayers = payload.onlinePlayers();
+        schematicFiles = payload.schematicFiles();
+        syncmaticaSchematics = payload.syncmaticaSchematics();
         settings = payload.settings();
         waypoints = payload.waypoints();
         received = true;
@@ -50,6 +55,14 @@ final class ClientControlOptions {
 
     static List<String> onlinePlayers() {
         return onlinePlayers;
+    }
+
+    static List<String> schematicFiles() {
+        return schematicFiles;
+    }
+
+    static List<SyncmaticaOption> syncmaticaSchematics() {
+        return syncmaticaSchematics;
     }
 
     static List<SettingOption> settings() {
@@ -81,6 +94,8 @@ final class ClientControlOptions {
     static void clear() {
         fakePlayers = List.of();
         onlinePlayers = List.of();
+        schematicFiles = List.of();
+        syncmaticaSchematics = List.of();
         settings = List.of();
         waypoints = List.of();
         received = false;

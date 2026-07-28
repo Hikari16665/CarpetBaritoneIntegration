@@ -6,6 +6,7 @@ import baritone.api.pathing.goals.Goal;
 import baritone.api.process.IBaritoneProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
+import baritone.pathing.movement.CalculationContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -96,6 +97,9 @@ public final class PathingControlManager implements IPathingControlManager {
 
     private void apply(PathingCommand next) {
         Goal goal = next.goal;
+        CalculationContext desiredContext =
+                next instanceof PathingCommandContext contextual
+                        ? contextual.desiredCalcContext : null;
         switch (next.commandType) {
             case REQUEST_PAUSE -> baritone.pausePath();
             case SET_GOAL_AND_PAUSE -> {
@@ -109,7 +113,9 @@ public final class PathingControlManager implements IPathingControlManager {
             case SET_GOAL_AND_PATH -> {
                 if (goal != null && (!baritone.isPathing()
                         || !baritone.goalMatches(goal))) {
-                    baritone.pathToGoal(goal, 2_000L, 8_000L);
+                    baritone.pathToGoal(
+                            goal, 2_000L, 8_000L,
+                            desiredContext);
                 }
             }
             case REVALIDATE_GOAL_AND_PATH -> {
@@ -121,9 +127,11 @@ public final class PathingControlManager implements IPathingControlManager {
                     baritone.setActiveGoal(goal);
                     if (revalidate) {
                         if (baritone.getPathExecutor() != null) {
-                            baritone.deferRecalculationForProcess(goal);
+                            baritone.deferRecalculationForProcess(
+                                    goal, desiredContext);
                         } else {
-                            baritone.recalculateForProcess(goal);
+                            baritone.recalculateForProcess(
+                                    goal, desiredContext);
                         }
                     }
                 }
@@ -135,9 +143,11 @@ public final class PathingControlManager implements IPathingControlManager {
                     baritone.setActiveGoal(goal);
                     if (revalidate) {
                         if (baritone.getPathExecutor() != null) {
-                            baritone.deferRecalculationForProcess(goal);
+                            baritone.deferRecalculationForProcess(
+                                    goal, desiredContext);
                         } else {
-                            baritone.recalculateForProcess(goal);
+                            baritone.recalculateForProcess(
+                                    goal, desiredContext);
                         }
                     }
                 }

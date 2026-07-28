@@ -82,6 +82,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     private BlockPos areaMin;
     private BlockPos areaMax;
     private boolean areaMine;
+    private int compositeBatchOffset;
+    private int observedPathFailures;
 
     public MineProcess(Baritone baritone) {
         super(baritone);
@@ -101,7 +103,12 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             return null;
         }
 
-        if (calcFailed) {
+        int pathFailures = baritone.getConsecutivePathFailures();
+        boolean newlyFailed = pathFailures > observedPathFailures;
+        observedPathFailures = pathFailures;
+        if (pathFailures == 0) observedPathFailures = 0;
+        if (calcFailed || newlyFailed) {
+            rotateCompositeBatch();
             BlockPos closest = knownOreLocations.stream()
                     .min(Comparator.comparingDouble(ctx.playerFeet()::distSqr)).orElse(null);
             if (closest != null && knownOreLocations.size() == 1
@@ -167,6 +174,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 .filter(pos -> filter.has(ctx.world().getBlockState(pos)))
                 .min(Comparator.comparingDouble(ctx.playerFeet()::distSqr)).orElse(null);
         if (reachable != null && isSafeToCancel) {
+            compositeBatchOffset = 0;
             breaking = reachable;
             baritone.getInventoryController().ensureBestToolOnHotbar(
                     BlockStateInterface.get(ctx, reachable));
@@ -184,7 +192,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
 
         if (!knownOreLocations.isEmpty()) {
             CalculationContext calculation = new CalculationContext(baritone);
-            Goal[] goals = knownOreLocations.stream()
+            List<BlockPos> planned = currentGoalBatch();
+            Goal[] goals = planned.stream()
                     .map(pos -> coalesce(pos, calculation))
                     .toArray(Goal[]::new);
             return new PathingCommand(new GoalComposite(goals),
@@ -439,6 +448,57 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (knownOreLocations.size() > maximum) {
             knownOreLocations.subList(maximum, knownOreLocations.size()).clear();
         }
+        if (knownOreLocations.isEmpty()) {
+            compositeBatchOffset = 0;
+        } else {
+            compositeBatchOffset = Math.floorMod(
+                    compositeBatchOffset, knownOreLocations.size());
+        }
+    }
+
+    private List<BlockPos> currentGoalBatch() {
+        int size = knownOreLocations.size();
+        if (size <= 1) return List.copyOf(knownOreLocations);
+        int configured = Math.max(1,
+                Baritone.settings().mineGoalCompositeBatchSize.value);
+        int distance = Math.max(1,
+                Baritone.settings().mineGoalBatchingDistance.value);
+        double nearestSq = ctx.playerFeet().distSqr(
+                knownOreLocations.getFirst());
+        if (nearestSq <= (double) distance * distance
+                || size <= configured) {
+            return List.copyOf(knownOreLocations);
+        }
+        int count = Math.min(configured, size);
+        List<BlockPos> result = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) {
+            result.add(knownOreLocations.get(Math.floorMod(
+                    compositeBatchOffset + index, size)));
+        }
+        return result;
+    }
+
+    private void rotateCompositeBatch() {
+        int size = knownOreLocations.size();
+        if (size <= 1) return;
+        int distance = Math.max(1,
+                Baritone.settings().mineGoalBatchingDistance.value);
+        if (ctx.playerFeet().distSqr(knownOreLocations.getFirst())
+                <= (double) distance * distance) {
+            compositeBatchOffset = 0;
+            return;
+        }
+        int batch = Math.max(1,
+                Baritone.settings().mineGoalCompositeBatchSize.value);
+        compositeBatchOffset = Math.floorMod(
+                compositeBatchOffset + batch, size);
+        if (Baritone.settings().diagnosticLogging.value) {
+            System.out.println("[CBI-DIAG] mine-goal-batch player="
+                    + ctx.player().getScoreboardName()
+                    + " offset=" + compositeBatchOffset
+                    + " batch=" + Math.min(batch, size)
+                    + " total=" + size);
+        }
     }
 
     private Goal coalesce(BlockPos location, CalculationContext calculation) {
@@ -657,6 +717,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         areaMin = null;
         areaMax = null;
         areaMine = false;
+        compositeBatchOffset = 0;
+        observedPathFailures = 0;
         baritone.getInputOverrideHandler().clearAllKeys();
     }
 

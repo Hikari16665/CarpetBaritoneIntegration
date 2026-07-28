@@ -116,6 +116,7 @@ public final class Baritone implements IBaritone {
     private long calculationGeneration;
     private long nextRecalculationTick;
     private Goal deferredProcessRecalculation;
+    private CalculationContext deferredProcessCalculationContext;
     private BetterBlockPos selectionPos1;
     private BetterBlockPos selectionPos2;
     private final ConcurrentLinkedQueue<PathCompletion> pathCompletions =
@@ -280,6 +281,7 @@ public final class Baritone implements IBaritone {
                 pathExecutor == null || pathExecutor.isSafeToCancel());
         calcFailedLastTick = false;
         boolean suppressTrashDiscard = cleanProcess.isActive()
+                || builderProcess.isActive()
                 || followProcess.suppressesTrashDiscard()
                 || customGoalProcess.suppressesTrashDiscard();
         if (pathExecutor != null && !suppressTrashDiscard) {
@@ -330,9 +332,12 @@ public final class Baritone implements IBaritone {
             }
         }
         Goal deferred = deferredProcessRecalculation;
+        CalculationContext deferredContext =
+                deferredProcessCalculationContext;
         deferredProcessRecalculation = null;
+        deferredProcessCalculationContext = null;
         if (deferred != null) {
-            recalculateForProcess(deferred);
+            recalculateForProcess(deferred, deferredContext);
         }
         planAheadAndSplice();
         if (blockTask != null) {
@@ -395,6 +400,7 @@ public final class Baritone implements IBaritone {
         consecutivePathFailures = 0;
         pathRecalcPending = false;
         deferredProcessRecalculation = null;
+        deferredProcessCalculationContext = null;
         if (hadPath) gameEventHandler.onPathEvent(PathEvent.CANCELED);
     }
 
@@ -434,6 +440,10 @@ public final class Baritone implements IBaritone {
         return pathExecutor != null || inProgressPathfinder != null;
     }
 
+    public int getConsecutivePathFailures() {
+        return consecutivePathFailures;
+    }
+
     public boolean goalMatches(Goal goal) {
         return Objects.equals(activeGoal, goal);
     }
@@ -461,6 +471,11 @@ public final class Baritone implements IBaritone {
     }
 
     public void recalculateForProcess(Goal goal) {
+        recalculateForProcess(goal, null);
+    }
+
+    public void recalculateForProcess(
+            Goal goal, CalculationContext desiredContext) {
         if (pathRecalcPending && Objects.equals(activeGoal, goal)
                 && playerContext.world().getGameTime()
                 < nextRecalculationTick) return;
@@ -469,14 +484,25 @@ public final class Baritone implements IBaritone {
         activeGoal = goal;
         if (pathExecutor != null && !pathExecutor.isSafeToCancel()) return;
         pausePath();
-        revalidateAndRecalculate();
+        revalidateAndRecalculate(desiredContext);
     }
 
     public void deferRecalculationForProcess(Goal goal) {
+        deferRecalculationForProcess(goal, null);
+    }
+
+    public void deferRecalculationForProcess(
+            Goal goal, CalculationContext desiredContext) {
         deferredProcessRecalculation = goal;
+        deferredProcessCalculationContext = desiredContext;
     }
 
     private void revalidateAndRecalculate() {
+        revalidateAndRecalculate(null);
+    }
+
+    private void revalidateAndRecalculate(
+            CalculationContext desiredContext) {
         Goal goal = activeGoal;
         if (goal == null || goal.isInGoal(playerContext.playerFeet())) {
             activeGoal = null;
@@ -497,7 +523,7 @@ public final class Baritone implements IBaritone {
                 ? settings().collectItemFailureTimeoutMS.value
                 : settings().failureTimeoutMS.value) * multiplier;
         submitPathCalculation(start, goal, null, false,
-                primaryTimeout, failureTimeout);
+                primaryTimeout, failureTimeout, desiredContext);
     }
 
     public void startBlockTask(BlockInteractionTask task) {
@@ -672,6 +698,13 @@ public final class Baritone implements IBaritone {
     }
 
     public boolean pathToGoal(Goal goal, long primaryTimeout, long failureTimeout) {
+        return pathToGoal(
+                goal, primaryTimeout, failureTimeout, null);
+    }
+
+    public boolean pathToGoal(
+            Goal goal, long primaryTimeout, long failureTimeout,
+            CalculationContext desiredContext) {
         if (goal == null) return false;
         if (pathRecalcPending && Objects.equals(activeGoal, goal)
                 && playerContext.world().getGameTime()
@@ -689,7 +722,7 @@ public final class Baritone implements IBaritone {
         nextPathExecutor = null;
         BetterBlockPos start = pathingBehavior.pathStart();
         return submitPathCalculation(start, goal, null, false,
-                primaryTimeout, failureTimeout);
+                primaryTimeout, failureTimeout, desiredContext);
     }
 
     private boolean submitPathCalculation(
@@ -699,6 +732,19 @@ public final class Baritone implements IBaritone {
             boolean nextSegment,
             long primaryTimeout,
             long failureTimeout) {
+        return submitPathCalculation(
+                start, goal, previous, nextSegment,
+                primaryTimeout, failureTimeout, null);
+    }
+
+    private boolean submitPathCalculation(
+            BetterBlockPos start,
+            Goal goal,
+            IPath previous,
+            boolean nextSegment,
+            long primaryTimeout,
+            long failureTimeout,
+            CalculationContext desiredContext) {
         if (inProgressPathfinder != null) return false;
 
         /*
@@ -721,7 +767,9 @@ public final class Baritone implements IBaritone {
                         .getPlayerList().getViewDistance()),
                 Math.max(0, settings()
                         .pathingSnapshotWarmupChunkBudget.value));
-        CalculationContext context = builderProcess.isPathingGoal(goal)
+        CalculationContext context = desiredContext != null
+                ? desiredContext
+                : builderProcess.isPathingGoal(goal)
                 ? builderProcess.calculationContext(goal)
                 : new CalculationContext(this, true, goal);
         Map<Long, Long> snapshotRevisions =
@@ -791,6 +839,21 @@ public final class Baritone implements IBaritone {
                             + " type=" + completion.result.getType()
                             + " noPath goal=" + completion.goal);
                 }
+            }
+            if (!completion.nextSegment
+                    && calculated.isPresent()
+                    && activeGoal != null
+                    && !activeGoal.isInGoal(
+                            calculated.get().getDest())) {
+                // A process may publish a new composite while the worker is
+                // still finishing the previous one. Never execute that stale
+                // segment; preserve the newer goal and recalculate from the
+                // current server position.
+                pathRecalcPending = true;
+                nextRecalculationTick =
+                        playerContext.world().getGameTime() + 1L;
+                gameEventHandler.onPathEvent(PathEvent.CALC_FAILED);
+                continue;
             }
             if (calculated.isPresent()
                     && !pathSnapshotStillValid(
@@ -939,6 +1002,7 @@ public final class Baritone implements IBaritone {
             activeGoal = null;
             pathRecalcPending = false;
             deferredProcessRecalculation = null;
+            deferredProcessCalculationContext = null;
             return true;
         }
         pathRecalcPending = true;

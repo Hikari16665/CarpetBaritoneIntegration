@@ -7,6 +7,10 @@
     "MsgCommandMixin",
     "LevelBlockChangeMixin"
   ],
+  "client": [
+    "client.LitematicaMaterialListMixin",
+    "client.LitematicaMaterialEntryMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   },

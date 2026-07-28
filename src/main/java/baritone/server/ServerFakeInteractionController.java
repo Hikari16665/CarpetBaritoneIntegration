@@ -313,6 +313,21 @@ public final class ServerFakeInteractionController {
     public boolean placeSelectedBlockMatching(
             BlockPos target, BlockState desired,
             Predicate<BlockState> acceptableState) {
+        return matchingPlacement(
+                target, desired, acceptableState, true);
+    }
+
+    public boolean canPlaceSelectedBlockMatching(
+            BlockPos target, BlockState desired,
+            Predicate<BlockState> acceptableState) {
+        return matchingPlacement(
+                target, desired, acceptableState, false);
+    }
+
+    private boolean matchingPlacement(
+            BlockPos target, BlockState desired,
+            Predicate<BlockState> acceptableState,
+            boolean execute) {
         if (!canReach(target)) return false;
         ItemStack stack = player.getMainHandItem();
         if (!(stack.getItem() instanceof BlockItem blockItem)
@@ -353,6 +368,7 @@ public final class ServerFakeInteractionController {
                                 || !context.canPlace()) {
                             continue;
                         }
+                        if (!execute) return true;
                         baritone.getLookBehavior().updateTarget(
                                 new Rotation(player.getYRot(),
                                         player.getXRot()), true);
@@ -433,6 +449,46 @@ public final class ServerFakeInteractionController {
         lookAt(target);
         if (!player.getAbilities().instabuild) stack.shrink(1);
         player.inventoryMenu.broadcastChanges();
+        return true;
+    }
+
+    /**
+     * Builder variant of fluid replacement. It preserves the schematic's
+     * exact block state (facing, slab half, waterlogging and similar
+     * properties) while retaining the same reach, survival, collision and
+     * inventory-consumption rules as an ordinary fake placement.
+     */
+    public boolean fillFluidWithSelectedBlockMatching(
+            BlockPos target, BlockState desired,
+            Predicate<BlockState> acceptableState) {
+        if (!canReach(target) || desired == null
+                || !acceptableState.test(desired)) return false;
+        ItemStack stack = player.getMainHandItem();
+        if (!(stack.getItem() instanceof BlockItem blockItem)
+                || blockItem.getBlock() != desired.getBlock()) {
+            return false;
+        }
+        BlockState current = player.level().getBlockState(target);
+        if (current.getFluidState().isEmpty()
+                || !current.canBeReplaced()
+                || !desired.canSurvive(player.level(), target)
+                || !player.level().isUnobstructed(
+                        null, desired.getCollisionShape(
+                                player.level(), target).move(target))) {
+            return false;
+        }
+        if (!player.level().setBlockAndUpdate(target, desired)) {
+            return false;
+        }
+        baritone.getCleanProcess().recordPlacedSupport(target);
+        lookAt(target);
+        if (!player.getAbilities().instabuild) stack.shrink(1);
+        player.inventoryMenu.broadcastChanges();
+        if (player.level() instanceof ServerLevel level
+                && Baritone.settings().repackOnAnyBlockChange.value) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    target.getX() >> 4, target.getZ() >> 4);
+        }
         return true;
     }
 

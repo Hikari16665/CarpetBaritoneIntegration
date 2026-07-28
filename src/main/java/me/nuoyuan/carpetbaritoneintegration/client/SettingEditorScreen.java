@@ -3,9 +3,11 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 import com.daqem.uilib.gui.AbstractScreen;
 import com.daqem.uilib.gui.background.DarkenedBackground;
 import com.daqem.uilib.gui.component.item.ItemComponent;
+import com.daqem.uilib.gui.component.EmptyComponent;
 import com.daqem.uilib.gui.component.text.TextComponent;
 import com.daqem.uilib.gui.widget.ButtonWidget;
 import com.daqem.uilib.gui.widget.EditBoxWidget;
+import com.daqem.uilib.gui.widget.ScrollContainerWidget;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload.SettingOption;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -42,6 +44,13 @@ final class SettingEditorScreen extends AbstractScreen {
     private int sourceIndex;
     private int targetIndex;
     private ItemComponent preview;
+    private final List<ButtonWidget> listRows = new ArrayList<>();
+    private final List<ItemComponent> listIcons = new ArrayList<>();
+    private final List<String> displayedEntries = new ArrayList<>();
+    private ButtonWidget listModeButton;
+    private int listPage;
+    private boolean selectedOnly;
+    private static final int LIST_PAGE_SIZE = 48;
 
     SettingEditorScreen(
             Screen parent, SettingOption option, String fake) {
@@ -154,40 +163,56 @@ final class SettingEditorScreen extends AbstractScreen {
     }
 
     private void initList(int x, int y) {
-        if (!encoded.equals("none") && !encoded.isBlank()) {
+        if (entries.isEmpty() && !encoded.equals("none")
+                && !encoded.isBlank()) {
             entries.addAll(Arrays.asList(encoded.split(",")));
         }
         candidates = registryCandidates(option.type());
-        valueButton = new ButtonWidget(x, y, 340, 22,
-                Component.empty(), button -> {
-                    candidateIndex = (candidateIndex + 1)
-                            % Math.max(1, candidates.size());
-                    refreshList();
-                });
-        addWidget(valueButton);
-        addWidget(new ButtonWidget(x, y + 28, 108, 20,
-                Component.literal("上一个候选"), button -> {
-                    candidateIndex = Math.floorMod(candidateIndex - 1,
-                            Math.max(1, candidates.size()));
-                    refreshList();
-                }));
-        addWidget(new ButtonWidget(x + 116, y + 28, 108, 20,
-                Component.literal("加入列表"), button -> addEntry()));
-        addWidget(new ButtonWidget(x + 232, y + 28, 108, 20,
-                Component.literal("移除当前"), button -> removeEntry()));
-        addWidget(new ButtonWidget(x, y + 54, 340, 20,
-                Component.literal("切换已有条目"), button -> {
-                    if (!entries.isEmpty()) {
-                        entryIndex = (entryIndex + 1) % entries.size();
-                    }
-                    refreshList();
-                }));
-        if (option.type().equals("ITEM_LIST")) {
-            preview = new ItemComponent(x + 318, y - 20,
-                    ItemStack.EMPTY, true);
-            addComponent(preview);
+        ScrollContainerWidget scroll =
+                new ScrollContainerWidget(340, 94, 2);
+        scroll.setX(x);
+        scroll.setY(y + 24);
+        listRows.clear();
+        listIcons.clear();
+        for (int rowIndex = 0; rowIndex < LIST_PAGE_SIZE; rowIndex++) {
+            final int clickedRow = rowIndex;
+            EmptyComponent row = new EmptyComponent(0, 0, 326, 22);
+            int buttonX = 0;
+            int buttonWidth = 326;
+            if (option.type().equals("ITEM_LIST")) {
+                ItemComponent icon = new ItemComponent(
+                        2, 2, ItemStack.EMPTY, true);
+                row.addComponent(icon);
+                listIcons.add(icon);
+            }
+            ButtonWidget button = new ButtonWidget(
+                    buttonX, 0, buttonWidth, 20,
+                    Component.empty(), ignored ->
+                    toggleDisplayedEntry(clickedRow));
+            row.addWidget(button);
+            listRows.add(button);
+            scroll.addComponent(row);
         }
-        refreshList();
+        addWidget(scroll);
+        addWidget(new ButtonWidget(x, y, 106, 20,
+                Component.literal("上一页"), button -> {
+                    listPage = Math.max(0, listPage - 1);
+                    refreshListRows();
+                }));
+        listModeButton = new ButtonWidget(x + 112, y, 112, 20,
+                Component.empty(), button -> {
+                    selectedOnly = !selectedOnly;
+                    listPage = 0;
+                    refreshListRows();
+                });
+        addWidget(listModeButton);
+        addWidget(new ButtonWidget(x + 230, y, 110, 20,
+                Component.literal("下一页"), button -> {
+                    int size = activeListValues().size();
+                    if ((listPage + 1) * LIST_PAGE_SIZE < size) listPage++;
+                    refreshListRows();
+                }));
+        refreshListRows();
     }
 
     private void initMap(int x, int y) {
@@ -265,31 +290,50 @@ final class SettingEditorScreen extends AbstractScreen {
                 + "=" + rgba[channel]));
     }
 
-    private void addEntry() {
-        String value = candidate(candidateIndex);
-        if (!value.isEmpty() && !entries.contains(value)) entries.add(value);
-        entryIndex = Math.max(0, entries.indexOf(value));
-        refreshList();
+    private List<String> activeListValues() {
+        return selectedOnly ? List.copyOf(entries) : candidates;
     }
 
-    private void removeEntry() {
-        if (!entries.isEmpty()) {
-            entries.remove(Math.floorMod(entryIndex, entries.size()));
-            entryIndex = 0;
+    private void toggleDisplayedEntry(int row) {
+        if (row < 0 || row >= displayedEntries.size()) return;
+        String value = displayedEntries.get(row);
+        if (entries.contains(value)) entries.remove(value);
+        else entries.add(value);
+        encoded = entries.isEmpty() ? "none" : String.join(",", entries);
+        refreshListRows();
+    }
+
+    private void refreshListRows() {
+        if (listModeButton != null) {
+            listModeButton.setMessage(Component.literal(
+                    (selectedOnly ? "仅已选择" : "全部候选")
+                            + " (" + entries.size() + ")"));
         }
-        refreshList();
-    }
-
-    private void refreshList() {
-        String candidate = candidate(candidateIndex);
-        String current = entries.isEmpty() ? "无"
-                : entries.get(Math.floorMod(entryIndex, entries.size()));
-        valueButton.setMessage(Component.literal("候选: " + candidate
-                + "  | 已有(" + entries.size() + "): " + current));
-        if (preview != null) {
-            ResourceLocation id = ResourceLocation.tryParse(candidate);
-            preview.setItemStack(id == null ? ItemStack.EMPTY
-                    : new ItemStack(BuiltInRegistries.ITEM.getValue(id)));
+        List<String> values = activeListValues();
+        int start = listPage * LIST_PAGE_SIZE;
+        displayedEntries.clear();
+        for (int row = 0; row < listRows.size(); row++) {
+            int index = start + row;
+            ButtonWidget button = listRows.get(row);
+            boolean present = index < values.size();
+            button.visible = present;
+            if (!present) {
+                if (row < listIcons.size()) {
+                    listIcons.get(row).setItemStack(ItemStack.EMPTY);
+                }
+                continue;
+            }
+            String value = values.get(index);
+            displayedEntries.add(value);
+            button.setMessage(Component.literal(
+                    (entries.contains(value) ? "✓ 点击移除  " : "＋ 点击添加  ")
+                            + value));
+            if (row < listIcons.size()) {
+                ResourceLocation id = ResourceLocation.tryParse(value);
+                listIcons.get(row).setItemStack(id == null
+                        ? ItemStack.EMPTY : new ItemStack(
+                        BuiltInRegistries.ITEM.getValue(id)));
+            }
         }
     }
 
@@ -370,8 +414,7 @@ final class SettingEditorScreen extends AbstractScreen {
 
     private void send(String arguments) {
         if (fake.isBlank() || minecraft.getConnection() == null) return;
-        minecraft.getConnection().sendCommand(
-                "tell " + fake + " baritone " + arguments);
+        ClientCommandSender.sendCommand(fake, arguments);
     }
 
     private static String part(String[] parts, int index) {

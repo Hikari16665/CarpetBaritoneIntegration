@@ -48,6 +48,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
+import me.nuoyuan.carpetbaritoneintegration.compat.SyncmaticaBridge;
 import java.util.Map;
 
 /** Parses the small server-safe command set accepted through private messages. */
@@ -75,19 +77,37 @@ public final class BasicGoalCommandHandler {
         }
 
         String command = trimmed.substring(prefix.length()).trim();
+        ExecutionResult result = executeDirect(sender, target, command);
+        if (!result.success()) {
+            reply(target, sender, result.message());
+        }
+        return true;
+    }
+
+    public static ExecutionResult executeDirect(
+            ServerPlayer sender, ServerPlayer target, String command) {
+        if (!(target instanceof EntityPlayerMPFake)) {
+            return new ExecutionResult(false,
+                    "错误: 目标玩家不是 Carpet 假人");
+        }
         try {
             Baritone baritone = Carpetbaritoneintegration.BARITONES.getOrCreate(
                     target.getServer(), target);
             if (!baritone.getCommandManager().executeAs(sender, target, command)) {
                 throw new IllegalArgumentException("未知指令。发送 cbi help 查看帮助");
             }
+            return new ExecutionResult(true, "命令已提交");
         } catch (IllegalArgumentException exception) {
-            reply(target, sender, "错误: " + exception.getMessage());
+            return new ExecutionResult(false,
+                    "错误: " + exception.getMessage());
         } catch (Exception exception) {
-            reply(target, sender, "寻路执行失败: " + exception.getClass().getSimpleName());
+            return new ExecutionResult(false,
+                    "寻路执行失败: "
+                            + exception.getClass().getSimpleName());
         }
-        return true;
     }
+
+    public record ExecutionResult(boolean success, String message) { }
 
     public static void executeCommand(
             ServerPlayer sender, ServerPlayer fakePlayer,
@@ -153,6 +173,39 @@ public final class BasicGoalCommandHandler {
             case "backfill" -> setBackfill(sender, fakePlayer, args);
             case "farm" -> startFarm(sender, fakePlayer, baritone, args);
             case "build" -> startBuild(sender, fakePlayer, baritone, args);
+            case "schematica" -> {
+                requireNoArguments(args, "schematica");
+                baritone.cancelAll();
+                baritone.getBuilderProcess().setFeedback(
+                        message -> reply(fakePlayer, sender, message));
+                baritone.getBuilderProcess().buildOpenSchematic();
+                if (baritone.getBuilderProcess().isActive()) {
+                    reply(fakePlayer, sender,
+                            "已加载服务器最近修改的蓝图");
+                } else {
+                    baritone.getBuilderProcess().setFeedback(null);
+                }
+            }
+            case "litematica" -> {
+                if (args.length > 2) {
+                    throw new IllegalArgumentException(
+                            "用法: cbi litematica [索引，起始为1]");
+                }
+                int index = args.length == 2
+                        ? positive(args[1], "索引") - 1 : 0;
+                baritone.cancelAll();
+                baritone.getBuilderProcess().setFeedback(
+                        message -> reply(fakePlayer, sender, message));
+                baritone.getBuilderProcess()
+                        .buildOpenLitematic(index);
+                if (baritone.getBuilderProcess().isActive()) {
+                    reply(fakePlayer, sender,
+                            "已加载服务器 Litematica 蓝图 #"
+                                    + (index + 1));
+                } else {
+                    baritone.getBuilderProcess().setFeedback(null);
+                }
+            }
             case "elytra", "fly" -> startElytra(sender, fakePlayer, baritone, args);
             case "runaway", "run_away" -> startRunAway(sender, fakePlayer, baritone, args);
             case "goal" -> manageGoal(sender, fakePlayer, baritone, args);
@@ -233,17 +286,22 @@ public final class BasicGoalCommandHandler {
             }
             case "resume", "r", "unpause", "unpaws" -> {
                 requireNoArguments(args, "resume");
-                baritone.getBuilderProcess().resume();
-                if (!baritone.getPauseProcess().isPaused()) {
+                boolean builderPaused =
+                        baritone.getBuilderProcess().isPaused();
+                boolean globallyPaused =
+                        baritone.getPauseProcess().isPaused();
+                if (!builderPaused && !globallyPaused) {
                     throw new IllegalArgumentException("任务当前没有暂停");
                 }
+                baritone.getBuilderProcess().resume();
                 baritone.getPauseProcess().setPaused(false);
                 reply(fakePlayer, sender, "已恢复当前任务");
             }
             case "paused" -> {
                 requireNoArguments(args, "paused");
                 reply(fakePlayer, sender,
-                        baritone.getPauseProcess().isPaused()
+                        (baritone.getPauseProcess().isPaused()
+                                || baritone.getBuilderProcess().isPaused())
                                 ? "Baritone 已暂停"
                                 : "Baritone 未暂停");
             }
@@ -387,24 +445,32 @@ public final class BasicGoalCommandHandler {
     private static void startCollectItem(
             ServerPlayer sender, ServerPlayer fakePlayer,
             Baritone baritone, String[] args) {
-        if (args.length != 4) {
+        if (args.length < 4 || args.length % 2 != 0) {
             throw new IllegalArgumentException(
-                    "用法: cbi collectItem <item_id> <数量> <接收玩家>");
+                    "用法: cbi collectItem <item_id> <数量> "
+                            + "[<item_id> <数量> ...] <接收玩家>");
         }
-        Item requested = item(args[1]);
-        int count = positive(args[2], "数量");
+        java.util.Map<Item, Integer> requested =
+                new java.util.LinkedHashMap<>();
+        for (int index = 1; index < args.length - 1; index += 2) {
+            Item selected = item(args[index]);
+            int requestedCount = positive(args[index + 1], "amount");
+            requested.merge(selected, requestedCount, Integer::sum);
+        }
         ServerPlayer recipient = fakePlayer.getServer().getPlayerList()
-                .getPlayerByName(args[3]);
+                .getPlayerByName(args[args.length - 1]);
         if (recipient == null || recipient == fakePlayer) {
             throw new IllegalArgumentException(
-                    "找不到可接收物品的玩家: " + args[3]);
+                    "找不到可接收物品的玩家: "
+                            + args[args.length - 1]);
         }
         baritone.cancelAll();
         baritone.getCollectItemProcess().collect(
-                requested, count, recipient,
+                requested, recipient,
                 message -> reply(fakePlayer, sender, message));
-        reply(fakePlayer, sender, "开始收集 " + args[1] + " ×" + count
-                + "，完成后交给 " + recipient.getScoreboardName());
+        reply(fakePlayer, sender, "开始收集 " + requested.size()
+                + " 种物品，完成后交给 "
+                + recipient.getScoreboardName());
     }
 
     private static void startGiveAll(
@@ -931,18 +997,64 @@ public final class BasicGoalCommandHandler {
     private static void startBuild(
             ServerPlayer sender, ServerPlayer fakePlayer, Baritone baritone, String[] args
     ) {
-        if ((args.length == 3 || args.length == 6)
-                && args[1].equalsIgnoreCase("file")) {
-            BlockPos origin = args.length == 6
-                    ? new BlockPos(coordinate(args[3], "x"), coordinate(args[4], "y"),
-                            coordinate(args[5], "z"))
-                    : fakePlayer.blockPosition();
-            File schematic = new File(args[2]);
+        if (args.length == 3 && args[1].equalsIgnoreCase("syncmatica")) {
+            UUID id;
+            try {
+                id = UUID.fromString(args[2]);
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("无效的 Syncmatica 投影 ID");
+            }
+            var shared = SyncmaticaBridge.find(fakePlayer.getServer(), id)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "找不到该 Syncmatica 共享投影，或文件尚未下载到服务端"));
+            String currentDimension = fakePlayer.level().dimension()
+                    .location().toString();
+            if (!currentDimension.equals(shared.dimension())) {
+                throw new IllegalArgumentException(
+                        "共享投影位于 " + shared.dimension()
+                                + "，假人当前位于 " + currentDimension);
+            }
             baritone.cancelAll();
+            baritone.getBuilderProcess().setFeedback(
+                    message -> reply(fakePlayer, sender, message));
+            if (!baritone.getBuilderProcess().buildTransformed(
+                    shared.name(), shared.file(), shared.origin(),
+                    shared.mirror(), shared.rotation())) {
+                baritone.getBuilderProcess().setFeedback(null);
+                throw new IllegalArgumentException(
+                        "无法读取 Syncmatica 共享投影文件: "
+                                + shared.file().getName());
+            }
+            reply(fakePlayer, sender, "开始在共享位置 "
+                    + shared.origin().toShortString() + " 建造 Syncmatica 投影 "
+                    + shared.name());
+            return;
+        }
+        boolean explicitFile = (args.length == 3 || args.length == 6)
+                && args[1].equalsIgnoreCase("file");
+        boolean upstreamFileSyntax = (args.length == 2
+                || args.length == 5)
+                && !args[1].equalsIgnoreCase("fill")
+                && !args[1].equalsIgnoreCase("clear");
+        if (explicitFile || upstreamFileSyntax) {
+            int fileIndex = explicitFile ? 2 : 1;
+            int coordinateIndex = fileIndex + 1;
+            boolean customOrigin = args.length == coordinateIndex + 3;
+            BlockPos origin = customOrigin
+                    ? new BlockPos(
+                            coordinate(args[coordinateIndex], "x"),
+                            coordinate(args[coordinateIndex + 1], "y"),
+                            coordinate(args[coordinateIndex + 2], "z"))
+                    : fakePlayer.blockPosition();
+            File schematic = resolveSchematicFile(args[fileIndex]);
+            baritone.cancelAll();
+            baritone.getBuilderProcess().setFeedback(
+                    message -> reply(fakePlayer, sender, message));
             if (!baritone.getBuilderProcess().build(
                     schematic.getName(), schematic, origin)) {
+                baritone.getBuilderProcess().setFeedback(null);
                 throw new IllegalArgumentException(
-                        "无法加载蓝图（目前支持 Sponge .schem v1/v2）: "
+                        "无法加载蓝图（支持 .schematic、.schem、.litematic）: "
                                 + schematic.getPath());
             }
             reply(fakePlayer, sender, "开始在 " + origin.toShortString()
@@ -968,6 +1080,8 @@ public final class BasicGoalCommandHandler {
                             Math.abs(a.getZ() - b.getZ()) + 1,
                             fill.defaultBlockState()),
                     min);
+            baritone.getBuilderProcess().setFeedback(
+                    message -> reply(fakePlayer, sender, message));
             reply(fakePlayer, sender, "开始填充区域");
             return;
         }
@@ -979,12 +1093,17 @@ public final class BasicGoalCommandHandler {
                     coordinate(args[5], "x2"), coordinate(args[6], "y2"),
                     coordinate(args[7], "z2"));
             baritone.cancelAll();
+            baritone.getBuilderProcess().setFeedback(
+                    message -> reply(fakePlayer, sender, message));
             baritone.getBuilderProcess().clearArea(a, b);
             reply(fakePlayer, sender, "开始清空区域");
             return;
         }
         throw new IllegalArgumentException(
-                "用法: cbi build fill <block> <x1 y1 z1 x2 y2 z2>，"
+                "用法: cbi build <蓝图文件> [x y z]，"
+                        + "build file <蓝图文件> [x y z]，"
+                        + "build syncmatica <共享投影UUID>，"
+                        + "build fill <block> <x1 y1 z1 x2 y2 z2>，"
                         + "或 build clear <x1 y1 z1 x2 y2 z2>");
     }
 
@@ -997,6 +1116,23 @@ public final class BasicGoalCommandHandler {
         int range = args.length == 2 ? positive(args[1], "范围") : 0;
         baritone.startFarming(range, fakePlayer.blockPosition());
         reply(fakePlayer, sender, "开始自动耕作" + (range == 0 ? "" : "，范围 " + range));
+    }
+
+    private static File resolveSchematicFile(String value) {
+        String suffix = new File(value).getName().contains(".")
+                ? "" : "." + Baritone.settings()
+                        .schematicFallbackExtension.value;
+        File requested = new File(value + suffix);
+        if (requested.isAbsolute()) return requested;
+        File inSchematicDirectory =
+                new File("schematics", value + suffix);
+        if (inSchematicDirectory.isFile()) {
+            return inSchematicDirectory;
+        }
+        if (requested.isFile()) return requested;
+        // Prefer the canonical server schematic directory in the eventual
+        // error message and for GUI-provided relative paths.
+        return inSchematicDirectory;
     }
 
     private static void setBackfill(
@@ -1587,11 +1723,25 @@ public final class BasicGoalCommandHandler {
             String[] args) {
         if (args.length > 1) {
             reply(fakePlayer, sender, "命令帮助查询: " + args[1]);
+            if (args[1].equalsIgnoreCase("collectItem")) {
+                reply(fakePlayer, sender,
+                        "collectItem <物品ID> <数量> "
+                                + "[<物品ID> <数量> ...] <接收玩家>");
+                reply(fakePlayer, sender,
+                        "每种物品独立搜索；缺货项会结束搜索并继续下一项，"
+                                + "背包满时会先分批交付。");
+                return;
+            }
+            if (args[1].equalsIgnoreCase("mine")) {
+                reply(fakePlayer, sender,
+                        "mine <方块ID...> [总数量]；多个 ID 互为备选目标");
+                return;
+            }
         }
         reply(fakePlayer, sender,
                 "导航: goto, come, y, goal, path, surface, thisway, axis, tunnel");
         reply(fakePlayer, sender,
-                "任务: mine, areamine, collectItem, farm, build, clean, explore, follow, elytra");
+                "任务: mine, areamine, collectItem, farm, build, schematica, litematica, clean, explore, follow, elytra");
         reply(fakePlayer, sender,
                 "交互: break, place, giveAll, trash, pickup, blacklist, find");
         reply(fakePlayer, sender,

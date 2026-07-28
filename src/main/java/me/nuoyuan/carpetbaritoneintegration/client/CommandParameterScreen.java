@@ -152,8 +152,18 @@ final class CommandParameterScreen extends AbstractScreen {
         itemBox = edit(left, row, 196,
                 "物品/方块 ID（无需 minecraft:）");
         itemBox.setResponder(this::refreshItemPreview);
-        addWidget(new ButtonWidget(left + 202, row, 98, 20,
-                Component.literal("使用主手"), button -> useMainHand()));
+        addWidget(new ButtonWidget(left + 202, row, 47, 20,
+                Component.literal("主手"), button -> useMainHand()));
+        addWidget(new ButtonWidget(left + 253, row, 47, 20,
+                Component.literal("选择"), button ->
+                minecraft.setScreen(new ItemPickerScreen(this,
+                        command == BaritoneControlScreen.ControlCommand.GET
+                                || command
+                                == BaritoneControlScreen.ControlCommand.FIND,
+                        value -> {
+                            itemBox.setValue(value);
+                            refreshItemPreview(value);
+                        }))));
         itemPreview = new ItemComponent(left + 278, row - 22,
                 ItemStack.EMPTY, true);
         addComponent(itemPreview);
@@ -284,9 +294,7 @@ final class CommandParameterScreen extends AbstractScreen {
     }
 
     private void sendTell(String fake, String label, String arguments) {
-        minecraft.getConnection().sendCommand("tell " + fake
-                + " baritone " + label
-                + (arguments.isBlank() ? "" : " " + arguments));
+        ClientCommandSender.send(fake, label, arguments);
     }
 
     private String buildArguments() {

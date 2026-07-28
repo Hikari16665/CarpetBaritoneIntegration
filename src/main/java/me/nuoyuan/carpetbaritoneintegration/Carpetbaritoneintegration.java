@@ -23,10 +23,18 @@ import java.util.List;
 import me.nuoyuan.carpetbaritoneintegration.network.PathNetwork;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsRequestPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.CommandSubmitPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.CommandResultPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.SettingOptions;
+import baritone.server.BasicGoalCommandHandler;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import carpet.patches.EntityPlayerMPFake;
 import java.util.LinkedHashSet;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import baritone.utils.schematic.SchematicSystem;
+import me.nuoyuan.carpetbaritoneintegration.compat.SyncmaticaBridge;
 
 public class Carpetbaritoneintegration implements ModInitializer {
     public static final ServerBaritoneRegistry BARITONES = new ServerBaritoneRegistry();
@@ -88,8 +96,40 @@ public class Carpetbaritoneintegration implements ModInitializer {
                             ServerPlayNetworking.send(context.player(),
                                     new ControlOptionsPayload(
                                             fakePlayers, onlinePlayers,
+                                            schematicFiles(),
+                                            SyncmaticaBridge.list(context.server())
+                                                    .stream().map(value -> new
+                                                            ControlOptionsPayload.SyncmaticaOption(
+                                                            value.id().toString(),
+                                                            value.name(),
+                                                            value.dimension(),
+                                                            value.origin().getX(),
+                                                            value.origin().getY(),
+                                                            value.origin().getZ(),
+                                                            value.rotation().name(),
+                                                            value.mirror().name()))
+                                                    .toList(),
                                             SettingOptions.snapshot(),
                                             waypoints));
+                        }));
+        ServerPlayNetworking.registerGlobalReceiver(
+                CommandSubmitPayload.TYPE, (payload, context) ->
+                        context.server().execute(() -> {
+                            var fake = context.server().getPlayerList()
+                                    .getPlayerByName(payload.fakePlayer());
+                            BasicGoalCommandHandler.ExecutionResult result =
+                                    fake == null
+                                    ? new BasicGoalCommandHandler
+                                            .ExecutionResult(false,
+                                            "错误: 找不到假人 "
+                                                    + payload.fakePlayer())
+                                    : BasicGoalCommandHandler.executeDirect(
+                                            context.player(), fake,
+                                            payload.command());
+                            ServerPlayNetworking.send(context.player(),
+                                    new CommandResultPayload(
+                                            result.success(),
+                                            result.message()));
                         }));
         BaritoneAPI.setProvider(new ServerBaritoneProvider(BARITONES));
         ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
@@ -151,5 +191,26 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                 chunk.getPos().x, chunk.getPos().z));
                     }
                 }));
+    }
+
+    private static List<String> schematicFiles() {
+        Path root = Path.of("schematics").toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) return List.of();
+        try (var files = Files.walk(root, 8)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> SchematicSystem.INSTANCE
+                            .getByFile(path.toFile()).isPresent())
+                    // Bound work performed by a client options request even
+                    // when the server directory contains an unusually large
+                    // schematic archive.
+                    .limit(4096)
+                    .map(root::relativize)
+                    .map(path -> path.toString().replace('\\', '/'))
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .limit(1024)
+                    .toList();
+        } catch (IOException ignored) {
+            return List.of();
+        }
     }
 }
