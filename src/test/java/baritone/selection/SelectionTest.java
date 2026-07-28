@@ -3,6 +3,7 @@ package baritone.selection;
 import baritone.api.selection.ISelection;
 import baritone.api.utils.BetterBlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.MinecraftServer;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -17,6 +18,7 @@ public class SelectionTest {
         assertEquals(4, selection.size().getX());
         assertEquals(3, selection.size().getY());
         assertEquals(6, selection.size().getZ());
+
     }
 
     @Test

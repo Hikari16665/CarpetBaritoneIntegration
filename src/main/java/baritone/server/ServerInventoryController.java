@@ -102,6 +102,49 @@ public final class ServerInventoryController {
         return false;
     }
 
+    /**
+     * Builder/Printer inventory operation. Its interactions are server-side
+     * synthetic actions, so once the fake player can theoretically access its
+     * inventory there is no reason to wait for the ordinary movement throttle.
+     *
+     * <p>This also unpacks one matching stack from an inventory shulker before
+     * selecting it. Keeping this separate from {@link #selectItem(Predicate)}
+     * preserves upstream-style throttling for normal path movements.</p>
+     */
+    public boolean selectItemForBuilder(Predicate<ItemStack> desired) {
+        if (!Baritone.settings().allowInventory.value) {
+            return selectItem(desired);
+        }
+        NonNullList<ItemStack> inventory =
+                player.getInventory().getNonEquipmentItems();
+        int slot = findSlot(desired);
+        if (slot < 0 && extractOneFromShulker(desired)) {
+            slot = findSlot(desired);
+        }
+        if (slot < 0) return false;
+        if (slot >= 9) {
+            int destination = 7;
+            ItemStack hotbar = inventory.get(destination);
+            inventory.set(destination, inventory.get(slot));
+            inventory.set(slot, hotbar);
+            player.inventoryMenu.broadcastChanges();
+            slot = destination;
+        }
+        player.getInventory().setSelectedSlot(slot);
+        return true;
+    }
+
+    /**
+     * Moves one matching stack out of an inventory shulker ahead of time.
+     * Builder calls this when it chooses a remote target, allowing the normal
+     * path execution to overlap with material preparation.
+     */
+    public boolean prepareItemForBuilder(Predicate<ItemStack> desired) {
+        if (findSlot(desired) >= 0) return true;
+        return Baritone.settings().allowInventory.value
+                && extractOneFromShulker(desired);
+    }
+
     public boolean hasAccessibleItem(Predicate<ItemStack> desired) {
         for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
             if (desired.test(stack)) return true;

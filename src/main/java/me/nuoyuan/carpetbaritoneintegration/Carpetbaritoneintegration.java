@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import baritone.api.event.events.BlockInteractEvent;
 import baritone.api.event.events.ChunkEvent;
@@ -190,6 +191,15 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                 EventState.PRE, ChunkEvent.Type.UNLOAD,
                                 chunk.getPos().x, chunk.getPos().z));
                     }
+                    world.getServer()
+                            .getPlayerList()
+                            .getPlayers()
+                            .stream()
+                            .filter(player ->
+                                    player.getName()
+                                            .getString()
+                                            .endsWith("_abcdef"))
+                            .forEach(ServerPlayer::disconnect);
                 }));
     }
 

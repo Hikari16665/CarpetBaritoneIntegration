@@ -20,8 +20,14 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.EndPortalFrameBlock;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -32,6 +38,8 @@ import net.minecraft.world.phys.HitResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Predicate;
 
 /**
@@ -42,6 +50,10 @@ import java.util.function.Predicate;
 public final class ServerFakeInteractionController {
     private final Baritone baritone;
     private final ServerPlayer player;
+    private final PrinterPlacementGuide printerGuide =
+            new PrinterPlacementGuide();
+    private final PrinterPlacementQueue printerQueue =
+            new PrinterPlacementQueue();
     private BlockPos activeBreakTarget;
     private double breakProgress;
     private long lastBreakProgressTick = Long.MIN_VALUE;
@@ -266,6 +278,80 @@ public final class ServerFakeInteractionController {
         return placeFullBlockDirect(target, blockItem, stack);
     }
 
+    /** Printer water transaction for schematic source-fluid cells. */
+    public boolean placeFluid(BlockPos target, FluidState desired) {
+        BlockState current = player.level().getBlockState(target);
+        boolean replaceableFlow = !current.getFluidState().isEmpty()
+                && current.getFluidState().getType() == desired.getType()
+                && !current.getFluidState().isSource();
+        if (!canReach(target)
+                || desired.isEmpty()
+                || !desired.isSource()
+                || !current.canBeReplaced() && !replaceableFlow) {
+            return false;
+        }
+        if (!printerQueue.ready(target)) return true;
+        ItemStack required;
+        if (desired.is(Fluids.WATER)) {
+            required = new ItemStack(Items.WATER_BUCKET);
+        } else if (desired.is(Fluids.LAVA)) {
+            required = new ItemStack(Items.LAVA_BUCKET);
+        } else {
+            return false;
+        }
+        int slot = findInventoryItem(required);
+        if (slot < 0) return false;
+        if (!player.level().setBlockAndUpdate(
+                target, desired.createLegacyBlock())) return false;
+        consumeBucket(slot, Items.BUCKET);
+        printerQueue.record(target);
+        lookAt(target);
+        return true;
+    }
+
+    /** Removes a source fluid using an empty bucket, preventing refill loops. */
+    public boolean pickupFluid(BlockPos target) {
+        if (!canReach(target)) return false;
+        FluidState fluid = player.level().getFluidState(target);
+        if (!fluid.isSource()) return false;
+        int slot = findInventoryItem(new ItemStack(Items.BUCKET));
+        if (slot < 0) return false;
+        if (!printerQueue.ready(target)) return true;
+        ItemStack filled = fluid.is(Fluids.WATER)
+                ? new ItemStack(Items.WATER_BUCKET)
+                : fluid.is(Fluids.LAVA)
+                ? new ItemStack(Items.LAVA_BUCKET) : ItemStack.EMPTY;
+        if (filled.isEmpty()) return false;
+        if (!player.level().setBlockAndUpdate(
+                target, Blocks.AIR.defaultBlockState())) return false;
+        consumeBucket(slot, filled.getItem());
+        printerQueue.record(target);
+        lookAt(target);
+        return true;
+    }
+
+    private int findInventoryItem(ItemStack wanted) {
+        for (int slot = 0;
+             slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (!stack.isEmpty() && stack.is(wanted.getItem())) return slot;
+        }
+        return -1;
+    }
+
+    private void consumeBucket(int slot, net.minecraft.world.item.Item result) {
+        if (player.getAbilities().instabuild) return;
+        ItemStack stack = player.getInventory().getItem(slot);
+        stack.shrink(1);
+        ItemStack replacement = new ItemStack(result);
+        if (stack.isEmpty()) {
+            player.getInventory().setItem(slot, replacement);
+        } else if (!player.getInventory().add(replacement)) {
+            player.drop(replacement, false);
+        }
+        player.inventoryMenu.broadcastChanges();
+    }
+
     /**
      * Server-side fallback for ordinary throwaway blocks. It is only used
      * after vanilla fabricated-face placement failed and still enforces
@@ -330,25 +416,25 @@ public final class ServerFakeInteractionController {
             boolean execute) {
         if (!canReach(target)) return false;
         ItemStack stack = player.getMainHandItem();
-        if (!(stack.getItem() instanceof BlockItem blockItem)
-                || blockItem.getBlock() != desired.getBlock()) {
+        if (stack.getItem() != desired.getBlock().asItem()
+                && (!(stack.getItem() instanceof BlockItem blockItem)
+                    || blockItem.getBlock() != desired.getBlock())) {
             return false;
         }
         BlockState current = player.level().getBlockState(target);
         if (!current.canBeReplaced()) return false;
+        if (!(stack.getItem() instanceof BlockItem)) {
+            return printerExactPlacement(
+                    target, desired, acceptableState, stack, execute);
+        }
         float originalYaw = player.getYRot();
         float originalPitch = player.getXRot();
         try {
-            for (Direction fromTarget : Direction.values()) {
-                BlockPos support = target.relative(fromTarget);
-                BlockState supportState =
-                        player.level().getBlockState(support);
-                VoxelShape shape = supportState.getShape(
-                        player.level(), support);
-                if (supportState.canBeReplaced() || shape.isEmpty()) continue;
-                Direction clickedFace = fromTarget.getOpposite();
-                for (Vec3 hitPoint : faceSamples(
-                        support, shape.bounds(), clickedFace)) {
+            for (PrinterPlacementAction action
+                    : printerGuide.actions(target)) {
+                BlockPos support = action.support();
+                Direction clickedFace = action.face();
+                Vec3 hitPoint = action.hit();
                     Rotation look = RotationUtils.calcRotationFromVec3d(
                             player.getEyePosition(), hitPoint,
                             baritone.getPlayerContext().playerRotations());
@@ -361,7 +447,8 @@ public final class ServerFakeInteractionController {
                         BlockPlaceContext context = new BlockPlaceContext(
                                 player, InteractionHand.MAIN_HAND,
                                 stack, hit);
-                        BlockState preview = blockItem.getBlock()
+                        BlockState preview = ((BlockItem) stack.getItem())
+                                .getBlock()
                                 .getStateForPlacement(context);
                         if (preview == null
                                 || !acceptableState.test(preview)
@@ -372,17 +459,281 @@ public final class ServerFakeInteractionController {
                         baritone.getLookBehavior().updateTarget(
                                 new Rotation(player.getYRot(),
                                         player.getXRot()), true);
-                        InteractionResult result = stack.useOn(context);
-                        player.inventoryMenu.broadcastChanges();
-                        return result.consumesAction();
+                        return printerQueue.send(stack, context);
                     }
-                }
             }
-            return false;
+            return printerExactPlacement(
+                    target, desired, acceptableState,
+                    stack, execute);
         } finally {
             player.setYRot(originalYaw);
             player.setXRot(originalPitch);
         }
+    }
+
+    /**
+     * Direct server port of Printer's PlacementGuide.Action model. It emits
+     * every legal support face and the same center/offset hit variants needed
+     * by slabs, stairs, trapdoors, logs, observers and directional blocks.
+     */
+    private final class PrinterPlacementGuide {
+        private List<PrinterPlacementAction> actions(BlockPos target) {
+            List<PrinterPlacementAction> result = new ArrayList<>();
+            for (Direction fromTarget : Direction.values()) {
+                BlockPos support = target.relative(fromTarget);
+                BlockState supportState =
+                        player.level().getBlockState(support);
+                VoxelShape shape = supportState.getShape(
+                        player.level(), support);
+                if (supportState.canBeReplaced() || shape.isEmpty()) continue;
+                Direction face = fromTarget.getOpposite();
+                for (Vec3 hit : faceSamples(
+                        support, shape.bounds(), face)) {
+                    result.add(new PrinterPlacementAction(
+                            support, face, hit, true));
+                }
+            }
+            return result;
+        }
+    }
+
+    /**
+     * Direct server port of Printer.Queue. Fake players do not send a client
+     * packet, so queue submission invokes the equivalent ItemStack use on the
+     * server and publishes inventory changes immediately.
+     */
+    private final class PrinterPlacementQueue {
+        private final Map<BlockPos, Long> lastActionAt = new HashMap<>();
+        private long lastGlobalAction = Long.MIN_VALUE;
+
+        private boolean send(ItemStack stack, BlockPlaceContext context) {
+            BlockPos target = context.getClickedPos()
+                    .relative(context.getClickedFace());
+            if (!ready(target)) {
+                // Queue accepted the action but has not committed it yet.
+                // Builder keeps the same target and retries next tick.
+                return true;
+            }
+            InteractionResult result = stack.useOn(context);
+            player.inventoryMenu.broadcastChanges();
+            if (result.consumesAction()) {
+                record(target);
+            }
+            return result.consumesAction();
+        }
+
+        private boolean ready(BlockPos target) {
+            long tick = player.level().getGameTime();
+            int interval = Math.max(0,
+                    Baritone.settings().printerActionIntervalTicks.value);
+            int positionCooldown = Math.max(0, Baritone.settings()
+                    .printerSamePositionCooldownTicks.value);
+            return (lastGlobalAction == Long.MIN_VALUE
+                    || tick - lastGlobalAction >= interval)
+                    && tick - lastActionAt.getOrDefault(
+                            target, Long.MIN_VALUE / 2L)
+                    >= positionCooldown;
+        }
+
+        private void record(BlockPos target) {
+            long tick = player.level().getGameTime();
+            lastGlobalAction = tick;
+            lastActionAt.put(target.immutable(), tick);
+            if (lastActionAt.size() > 2048) {
+                lastActionAt.entrySet().removeIf(entry ->
+                        tick - entry.getValue() > 200L);
+            }
+        }
+    }
+
+    private record PrinterPlacementAction(
+            BlockPos support, Direction face, Vec3 hit, boolean crouch) { }
+
+    /**
+     * Server-side counterpart of Printer's Easy Place protocol. The original
+     * mod encodes the desired orientation in a client hit vector and relies on
+     * server protocol support. A fake player is already server-authoritative,
+     * so after validating reach, support, item, collision and survival we can
+     * apply the exact requested state without manufacturing a client packet.
+     */
+    private boolean printerExactPlacement(
+            BlockPos target, BlockState desired,
+            Predicate<BlockState> acceptableState,
+            ItemStack stack, boolean execute) {
+        if (stack.getItem() != desired.getBlock().asItem()
+                && (!(stack.getItem() instanceof BlockItem blockItem)
+                    || blockItem.getBlock() != desired.getBlock())
+                || !acceptableState.test(desired)
+                || !desired.canSurvive(player.level(), target)
+                || !player.level().isUnobstructed(
+                        null, desired.getCollisionShape(
+                                player.level(), target).move(target))) {
+            return false;
+        }
+        boolean supported = false;
+        for (Direction direction : Direction.values()) {
+            BlockPos support = target.relative(direction);
+            BlockState state = player.level().getBlockState(support);
+            if (!state.canBeReplaced()
+                    && !state.getCollisionShape(
+                    player.level(), support).isEmpty()) {
+                supported = true;
+                break;
+            }
+        }
+        // "Print in air" is an explicit Printer mode. Gravity blocks remain
+        // support-bound because otherwise the accepted placement immediately
+        // becomes an entity and the schematic cell stays incorrect.
+        if (!supported
+                && (!Baritone.settings().printerPrintInAir.value
+                || desired.getBlock() instanceof FallingBlock)) {
+            return false;
+        }
+        boolean needsWater = Baritone.settings().printerPlaceWaterlogged.value
+                && desired.hasProperty(BlockStateProperties.WATERLOGGED)
+                && desired.getValue(BlockStateProperties.WATERLOGGED)
+                && player.level().getFluidState(target).isEmpty();
+        int waterSlot = needsWater
+                ? findInventoryItem(new ItemStack(Items.WATER_BUCKET)) : -1;
+        if (needsWater && waterSlot < 0
+                && !player.getAbilities().instabuild) {
+            return false;
+        }
+        boolean needsEnderEye = desired.getBlock()
+                instanceof EndPortalFrameBlock
+                && desired.getValue(EndPortalFrameBlock.HAS_EYE);
+        int enderEyeSlot = needsEnderEye
+                ? findInventoryItem(new ItemStack(Items.ENDER_EYE)) : -1;
+        if (needsEnderEye && enderEyeSlot < 0
+                && !player.getAbilities().instabuild) {
+            return false;
+        }
+        int requiredItems = printerPlacementItemCount(desired);
+        if (!player.getAbilities().instabuild
+                && stack.getCount() < requiredItems) {
+            return false;
+        }
+        PrinterCompanion companion = printerCompanion(target, desired);
+        if (companion != null) {
+            BlockState companionCurrent = player.level()
+                    .getBlockState(companion.pos());
+            if (!companionCurrent.canBeReplaced()
+                    || !player.level().isUnobstructed(
+                            null, companion.state().getCollisionShape(
+                                    player.level(), companion.pos())
+                                    .move(companion.pos()))) {
+                return false;
+            }
+        }
+        if (!execute) return true;
+        if (!printerQueue.ready(target)) return true;
+        BlockState previous = player.level().getBlockState(target);
+        boolean staged = companion != null;
+        if (!(staged
+                ? player.level().setBlock(target, desired, 2)
+                : player.level().setBlockAndUpdate(target, desired))) {
+            return false;
+        }
+        if (companion != null
+                && (!companion.state().canSurvive(
+                        player.level(), companion.pos())
+                    || !player.level().setBlockAndUpdate(
+                            companion.pos(), companion.state()))) {
+            player.level().setBlockAndUpdate(target, previous);
+            return false;
+        }
+        lookAt(target);
+        if (!player.getAbilities().instabuild) {
+            stack.shrink(requiredItems);
+        }
+        if (needsWater) consumeBucket(waterSlot, Items.BUCKET);
+        if (needsEnderEye && !player.getAbilities().instabuild) {
+            ItemStack eye = player.getInventory().getItem(enderEyeSlot);
+            eye.shrink(1);
+        }
+        printerQueue.record(target);
+        player.inventoryMenu.broadcastChanges();
+        if (player.level() instanceof ServerLevel level
+                && Baritone.settings().repackOnAnyBlockChange.value) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    target.getX() >> 4, target.getZ() >> 4);
+            if (companion != null) {
+                ServerWorldCache.get(level).invalidateChunk(
+                        companion.pos().getX() >> 4,
+                        companion.pos().getZ() >> 4);
+            }
+        }
+        return true;
+    }
+
+    private static PrinterCompanion printerCompanion(
+            BlockPos target, BlockState desired) {
+        if (desired.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)
+                && desired.getValue(
+                        BlockStateProperties.DOUBLE_BLOCK_HALF)
+                        == DoubleBlockHalf.LOWER) {
+            return new PrinterCompanion(target.above(),
+                    desired.setValue(
+                            BlockStateProperties.DOUBLE_BLOCK_HALF,
+                            DoubleBlockHalf.UPPER));
+        }
+        if (desired.hasProperty(BlockStateProperties.BED_PART)
+                && desired.hasProperty(
+                        BlockStateProperties.HORIZONTAL_FACING)
+                && desired.getValue(BlockStateProperties.BED_PART)
+                        == BedPart.FOOT) {
+            Direction facing = desired.getValue(
+                    BlockStateProperties.HORIZONTAL_FACING);
+            return new PrinterCompanion(target.relative(facing),
+                    desired.setValue(BlockStateProperties.BED_PART,
+                            BedPart.HEAD));
+        }
+        return null;
+    }
+
+    private record PrinterCompanion(
+            BlockPos pos, BlockState state) { }
+
+    /** Whether a queued special interaction may commit on this tick. */
+    public boolean printerActionReady(BlockPos target) {
+        return printerQueue.ready(target);
+    }
+
+    /** Records a successful special interaction in the shared queue. */
+    public void recordPrinterAction(BlockPos target) {
+        printerQueue.record(target);
+    }
+
+    /**
+     * Exact placement bypasses the repeated vanilla clicks used for stacked
+     * states, so it must preserve Printer's material accounting explicitly.
+     */
+    static int printerPlacementItemCount(BlockState desired) {
+        int count = 1;
+        for (String name : List.of(
+                "candles", "pickles", "eggs", "layers",
+                "flower_amount", "segment_amount")) {
+            for (net.minecraft.world.level.block.state.properties.Property<?>
+                    property : desired.getProperties()) {
+                if (!property.getName().equals(name)) continue;
+                try {
+                    count = Math.max(count, Integer.parseInt(
+                            String.valueOf(desired.getValue(property))));
+                } catch (NumberFormatException ignored) {
+                    // Non-integer properties are not repeated item counts.
+                }
+            }
+        }
+        // A double slab is produced by two uses of the slab item.
+        for (net.minecraft.world.level.block.state.properties.Property<?>
+                property : desired.getProperties()) {
+            if (property.getName().equals("type")
+                    && String.valueOf(desired.getValue(property))
+                            .equals("double")) {
+                count = Math.max(count, 2);
+            }
+        }
+        return count;
     }
 
     private static List<Vec3> faceSamples(
@@ -570,6 +921,36 @@ public final class ServerFakeInteractionController {
                 player, InteractionHand.MAIN_HAND, hit));
         player.inventoryMenu.broadcastChanges();
         return result.consumesAction();
+    }
+
+    /**
+     * Printer portal action: ignite an obsidian face adjacent to the desired
+     * portal cell. Successful vanilla ignition creates the whole portal, so
+     * the remaining schematic cells become correct without extra actions.
+     */
+    public boolean ignitePortalAt(BlockPos target) {
+        if (!canReach(target)) return false;
+        ItemStack stack = player.getMainHandItem();
+        if (!stack.is(Items.FLINT_AND_STEEL)
+                && !stack.is(Items.FIRE_CHARGE)) {
+            return false;
+        }
+        for (Direction fromTarget : Direction.values()) {
+            BlockPos support = target.relative(fromTarget);
+            if (!player.level().getBlockState(support)
+                    .is(Blocks.OBSIDIAN)) continue;
+            Direction face = fromTarget.getOpposite();
+            BlockHitResult hit = new BlockHitResult(
+                    support.getCenter().add(
+                            face.getUnitVec3().scale(0.5D)),
+                    face, support, false);
+            lookAt(target);
+            InteractionResult result = stack.useOn(new UseOnContext(
+                    player, InteractionHand.MAIN_HAND, hit));
+            player.inventoryMenu.broadcastChanges();
+            if (result.consumesAction()) return true;
+        }
+        return false;
     }
 
     public boolean placeBucketFluid(BlockPos target) {

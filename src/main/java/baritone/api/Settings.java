@@ -61,6 +61,47 @@ public final class Settings {
      * very large schematic to dominate a server tick. */
     public final Setting<Integer> builderGoalBatchSize =
             new Setting<>(64);
+    /** Litematica Printer execution settings, hosted by Baritone rather than
+     * a separate client configuration system. */
+    public final Setting<PrinterBuildMode> printerBuildMode =
+            new Setting<>(PrinterBuildMode.PRINT);
+    public final Setting<PrinterQueueMode> printerQueueMode =
+            new Setting<>(PrinterQueueMode.MULTI);
+    public final Setting<Integer> printerRange = new Setting<>(6);
+    public final Setting<PrinterScanShape> printerScanShape =
+            new Setting<>(PrinterScanShape.SPHERE);
+    public final Setting<Integer> printerActionIntervalTicks =
+            new Setting<>(0);
+    public final Setting<Integer> printerSamePositionCooldownTicks =
+            new Setting<>(2);
+    public final Setting<Integer> printerMaxActionsPerTick =
+            new Setting<>(4);
+    public final Setting<Boolean> printerPrintInAir =
+            new Setting<>(false);
+    public final Setting<Boolean> printerBreakWrongBlocks =
+            new Setting<>(true);
+    public final Setting<Boolean> printerReplaceWrongBlocks =
+            new Setting<>(true);
+    public final Setting<Boolean> printerPlaceFluids =
+            new Setting<>(true);
+    public final Setting<Boolean> printerPlaceWaterlogged =
+            new Setting<>(true);
+    public final Setting<Boolean> printerContinuousActions =
+            new Setting<>(true);
+    public final Setting<Integer> printerFailureRetryTicks =
+            new Setting<>(20);
+    public final Setting<Boolean> printerContainerRefill =
+            new Setting<>(true);
+    public final Setting<Integer> printerContainerSearchRange =
+            new Setting<>(128);
+    public final Setting<Integer> printerContainerScanChunksPerTick =
+            new Setting<>(4);
+    public final Setting<Integer> printerContainerRefillBatch =
+            new Setting<>(64);
+    /** Keep dedicated-server ticks running while a fake-player task can
+     * continue without a real player online. */
+    public final Setting<Boolean> keepServerAwakeForTasks =
+            new Setting<>(true);
     /** Kept for Builder API/settings compatibility. On a dedicated server the
      * completion notification is delivered through the command feedback
      * channel instead of a client desktop notification. */

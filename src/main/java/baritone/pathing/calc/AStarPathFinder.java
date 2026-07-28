@@ -41,11 +41,21 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
 
     private final Favoring favoring;
     private final CalculationContext calcContext;
+    private final PathCorridor corridor;
 
     public AStarPathFinder(BetterBlockPos realStart, int startX, int startY, int startZ, Goal goal, Favoring favoring, CalculationContext context) {
+        this(realStart, startX, startY, startZ, goal, favoring,
+                context, PathCorridor.UNBOUNDED);
+    }
+
+    public AStarPathFinder(BetterBlockPos realStart, int startX, int startY,
+                           int startZ, Goal goal, Favoring favoring,
+                           CalculationContext context, PathCorridor corridor) {
         super(realStart, startX, startY, startZ, goal, context);
         this.favoring = favoring;
         this.calcContext = context;
+        this.corridor = corridor == null
+                ? PathCorridor.UNBOUNDED : corridor;
     }
 
     @Override
@@ -102,6 +112,7 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
             for (Moves moves : allMoves) {
                 int newX = currentNode.x + moves.xOffset;
                 int newZ = currentNode.z + moves.zOffset;
+                if (!corridor.contains(newX, newZ)) continue;
                 if ((newX >> 4 != currentNode.x >> 4 || newZ >> 4 != currentNode.z >> 4) && !calcContext.isLoaded(newX, newZ)) {
                     // only need to check if the destination is a loaded chunk if it's in a different chunk than the start of the movement
                     if (!moves.dynamicXZ) { // only increment the counter if the movement would have gone out of bounds guaranteed
@@ -144,6 +155,7 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
                 if (actionCost >= ActionCosts.COST_INF) {
                     continue;
                 }
+                if (!corridor.contains(res.x, res.z)) continue;
                 if (actionCost <= 0 || Double.isNaN(actionCost)) {
                     throw new IllegalStateException(String.format(
                             "%s from %s %s %s calculated implausible cost %s",

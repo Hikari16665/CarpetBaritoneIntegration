@@ -130,8 +130,25 @@ public abstract class Movement implements IMovement, MovementHelper {
                 && currentState.getInputStates().getOrDefault(
                 Input.CLICK_RIGHT, false)
                 && positionToPlace != null) {
-            serverBaritone.getFakeInteractionController()
-                    .placeSelectedBlock(positionToPlace);
+            /*
+             * A direct server placement may otherwise run before the jump
+             * input reaches Carpet. When the requested support occupies the
+             * player's feet (pillar/tower), jump first and wait until the
+             * bounding box has cleared the block space. Placement remains
+             * allowed; it is merely sequenced after the jump.
+             */
+            boolean occupiesTarget = positionToPlace.equals(ctx.playerFeet())
+                    && ctx.player().position().y
+                    <= positionToPlace.getY() + 1.01D;
+            if (occupiesTarget) {
+                currentState.setInput(Input.JUMP, true);
+            } else {
+                if (serverBaritone.getFakeInteractionController()
+                        .placeSelectedBlock(positionToPlace)) {
+                    serverBaritone.getBuilderProcess()
+                            .recordPathingSupport(positionToPlace);
+                }
+            }
             currentState.setInput(Input.CLICK_RIGHT, false);
         }
         if (baritone instanceof Baritone serverBaritone

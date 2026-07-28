@@ -601,6 +601,25 @@ public final class Baritone implements IBaritone {
         return cleanProcess != null && cleanProcess.isActive();
     }
 
+    /** True only for work that can still advance while the server is empty. */
+    public boolean hasActiveTask() {
+        return pathExecutor != null
+                || blockTask != null
+                || followProcess.isActive()
+                || customGoalProcess.isActive()
+                || exploreProcess.isActive()
+                || getToBlockProcess.isActive()
+                || mineProcess.isActive()
+                || backfillProcess.isActive()
+                || farmProcess.isActive()
+                || builderProcess.isActive()
+                    && !builderProcess.isPaused()
+                || elytraProcess.isActive()
+                || collectItemProcess.isActive()
+                || giveAllProcess.isActive()
+                || cleanProcess.isActive();
+    }
+
     public BackfillProcess getBackfillProcess() {
         return backfillProcess;
     }
@@ -842,6 +861,8 @@ public final class Baritone implements IBaritone {
             }
             if (!completion.nextSegment
                     && calculated.isPresent()
+                    && completion.result.getType()
+                    == PathCalculationResult.Type.SUCCESS_TO_GOAL
                     && activeGoal != null
                     && !activeGoal.isInGoal(
                             calculated.get().getDest())) {
