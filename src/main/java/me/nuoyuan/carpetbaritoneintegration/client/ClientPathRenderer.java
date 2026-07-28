@@ -273,13 +273,15 @@ public final class ClientPathRenderer {
                         (float) (y1 - camera.y),
                         (float) (z1 - camera.z))
                 .setColor(red, green, blue, alpha)
-                .setNormal(pose, dx, dy, dz);
+                .setNormal(pose, dx, dy, dz)
+                .setLineWidth(2.0F);
         consumer.addVertex(pose,
                         (float) (x2 - camera.x),
                         (float) (y2 - camera.y),
                         (float) (z2 - camera.z))
                 .setColor(red, green, blue, alpha)
-                .setNormal(pose, dx, dy, dz);
+                .setNormal(pose, dx, dy, dz)
+                .setLineWidth(2.0F);
     }
 
     private record CachedSnapshot(
