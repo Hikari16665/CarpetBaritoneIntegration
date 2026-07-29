@@ -252,7 +252,7 @@ public final class ServerPathSync {
             result.add(new PathSnapshotPayload.GoalRender(
                     PathSnapshotPayload.GoalKind.XZ_COLUMN,
                     new BlockPos(value.getX(),
-                            fake.level().getMinY(), value.getZ()),
+                            fake.level().getMinBuildHeight(), value.getZ()),
                     inverted));
             return;
         }

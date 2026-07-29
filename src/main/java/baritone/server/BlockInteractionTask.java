@@ -308,7 +308,7 @@ public final class BlockInteractionTask {
             finish("快捷栏中没有所需方块");
             return;
         }
-        baritone.getPlayerContext().player().getInventory().setSelectedSlot(slot);
+        baritone.getPlayerContext().player().getInventory().selected = slot;
         if (baritone.getFakeInteractionController()
                 .placeSelectedBlock(target)) {
             return;
@@ -498,7 +498,7 @@ public final class BlockInteractionTask {
 
     private int findBlockSlot() {
         if (baritone.getInventoryController().selectBlock(block)) {
-            return baritone.getPlayerContext().player().getInventory().getSelectedSlot();
+            return baritone.getPlayerContext().player().getInventory().selected;
         }
         ServerPlayer player = baritone.getPlayerContext().player();
         for (int slot = 0; slot < 9; slot++) {

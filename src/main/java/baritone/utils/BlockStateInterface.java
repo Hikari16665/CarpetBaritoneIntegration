@@ -54,8 +54,8 @@ public final class BlockStateInterface {
         this.world = ctx.world();
         this.cachedWorld = ServerWorldCache.get(world);
         this.threaded = copyLoadedChunks;
-        this.minY = world.getMinY();
-        this.maxY = world.getMaxY();
+        this.minY = world.getMinBuildHeight();
+        this.maxY = world.getMaxBuildHeight();
         this.dimensionType = world.dimensionType();
         this.exactSnapshots = copyLoadedChunks
                 ? cachedWorld.exactSnapshotView()

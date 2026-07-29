@@ -1706,7 +1706,7 @@ public final class BuilderProcess implements IBuilderProcess {
     private void updateApproxPlaceable() {
         List<BlockState> states = new ArrayList<>();
         for (ItemStack stack : baritone.getPlayerContext().player()
-                .getInventory().getNonEquipmentItems()) {
+                .getInventory().items) {
             addPlaceableState(states, stack);
             ItemContainerContents contents = stack.getOrDefault(
                     DataComponents.CONTAINER,

@@ -21,8 +21,8 @@ import baritone.Baritone;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.Item;
@@ -68,15 +68,6 @@ public class ToolSet {
      * see {@link #getMaterialCost(ItemStack)}
      * Prefer tools with lower material cost (lower index in this list).
      */
-    private static final List<TagKey<Item>> materialTagsPriorityList = List.of(
-        ItemTags.WOODEN_TOOL_MATERIALS,
-        ItemTags.STONE_TOOL_MATERIALS,
-        ItemTags.IRON_TOOL_MATERIALS,
-        ItemTags.GOLD_TOOL_MATERIALS,
-        ItemTags.DIAMOND_TOOL_MATERIALS,
-        ItemTags.NETHERITE_TOOL_MATERIALS
-    );
-
     public ToolSet(ServerPlayer player) {
         breakStrengthCache = new HashMap<>();
         this.player = player;
@@ -108,10 +99,14 @@ public class ToolSet {
      * @return values from 0 up
      */
     private int getMaterialCost(ItemStack itemStack) {
-        for (int i = 0; i < materialTagsPriorityList.size(); i++) {
-            final TagKey<Item> tag = materialTagsPriorityList.get(i);
-            if (itemStack.is(tag)) return i;
-        }
+        String path = BuiltInRegistries.ITEM.getKey(
+                itemStack.getItem()).getPath();
+        if (path.startsWith("wooden_")) return 0;
+        if (path.startsWith("stone_")) return 1;
+        if (path.startsWith("iron_")) return 2;
+        if (path.startsWith("golden_")) return 3;
+        if (path.startsWith("diamond_")) return 4;
+        if (path.startsWith("netherite_")) return 5;
         return -1;
     }
 
@@ -146,7 +141,7 @@ public class ToolSet {
         possible, this lets us make pathing depend on the actual tool to be used (if auto tool is disabled)
         */
         if (!Baritone.settings().autoTool.value && pathingCalculation) {
-            return player.getInventory().getSelectedSlot();
+            return player.getInventory().selected;
         }
 
         int best = 0;
@@ -195,7 +190,7 @@ public class ToolSet {
         double best = calculateSpeedVsBlock(
                 stack, b.defaultBlockState());
         for (ItemStack outer :
-                player.getInventory().getNonEquipmentItems()) {
+                player.getInventory().items) {
             if (!(outer.getItem() instanceof BlockItem blockItem)
                     || !(blockItem.getBlock() instanceof ShulkerBoxBlock)) {
                 continue;
@@ -270,11 +265,13 @@ public class ToolSet {
      */
     private double potionAmplifier() {
         double speed = 1;
-        if (player.hasEffect(MobEffects.HASTE)) {
-            speed *= 1 + (player.getEffect(MobEffects.HASTE).getAmplifier() + 1) * 0.2;
+        if (player.hasEffect(MobEffects.DIG_SPEED)) {
+            speed *= 1 + (player.getEffect(
+                    MobEffects.DIG_SPEED).getAmplifier() + 1) * 0.2;
         }
-        if (player.hasEffect(MobEffects.MINING_FATIGUE)) {
-            switch (player.getEffect(MobEffects.MINING_FATIGUE).getAmplifier()) {
+        if (player.hasEffect(MobEffects.DIG_SLOWDOWN)) {
+            switch (player.getEffect(
+                    MobEffects.DIG_SLOWDOWN).getAmplifier()) {
                 case 0:
                     speed *= 0.3;
                     break;

@@ -271,7 +271,7 @@ final class CommandParameterScreen extends AbstractScreen {
         ResourceLocation id = ResourceLocation.tryParse(
                 value.contains(":") ? value : "minecraft:" + value);
         itemPreview.setItemStack(id == null ? ItemStack.EMPTY
-                : new ItemStack(BuiltInRegistries.ITEM.getValue(id)));
+                : new ItemStack(BuiltInRegistries.ITEM.get(id)));
     }
 
     private void submit() {

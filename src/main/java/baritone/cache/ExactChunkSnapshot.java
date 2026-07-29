@@ -9,7 +9,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 
 /**
  * Immutable, palette-backed copy of a loaded server chunk.
@@ -28,7 +27,7 @@ public final class ExactChunkSnapshot {
     private final int minSection;
     private final int minY;
     private final int maxY;
-    private final LevelChunkSection[] sections;
+    private final BlockState[][] sections;
     private final long revision;
 
     private ExactChunkSnapshot(
@@ -37,7 +36,7 @@ public final class ExactChunkSnapshot {
             int minSection,
             int minY,
             int maxY,
-            LevelChunkSection[] sections,
+            BlockState[][] sections,
             long revision) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
@@ -49,21 +48,30 @@ public final class ExactChunkSnapshot {
     }
 
     public static ExactChunkSnapshot copyOf(LevelChunk chunk, long revision) {
-        LevelChunkSection[] source = chunk.getSections();
-        LevelChunkSection[] copy = new LevelChunkSection[source.length];
+        var source = chunk.getSections();
+        BlockState[][] copy = new BlockState[source.length][];
         for (int index = 0; index < source.length; index++) {
-            LevelChunkSection section = source[index];
+            var section = source[index];
             if (section != null && !section.hasOnlyAir()) {
-                copy[index] = section.copy();
+                BlockState[] states = new BlockState[16 * 16 * 16];
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int x = 0; x < 16; x++) {
+                            states[index(x, y, z)] =
+                                    section.getBlockState(x, y, z);
+                        }
+                    }
+                }
+                copy[index] = states;
             }
         }
         ServerLevel level = (ServerLevel) chunk.getLevel();
         return new ExactChunkSnapshot(
                 chunk.getPos().x,
                 chunk.getPos().z,
-                level.getMinSectionY(),
-                level.getMinY(),
-                level.getMaxY(),
+                level.getMinSection(),
+                level.getMinBuildHeight(),
+                level.getMaxBuildHeight(),
                 copy,
                 revision);
     }
@@ -82,15 +90,21 @@ public final class ExactChunkSnapshot {
         }
         int index = (pos.getY() >> 4) - minSection;
         if (index < 0 || index >= sections.length) return this;
-        LevelChunkSection existing = sections[index];
+        BlockState[] existing = sections[index];
         if (existing == null && !state.isAir()) return null;
-        LevelChunkSection[] updated = sections.clone();
+        BlockState[][] updated = sections.clone();
         if (existing != null) {
-            LevelChunkSection section = existing.copy();
-            section.setBlockState(
-                    pos.getX() & 15, pos.getY() & 15,
-                    pos.getZ() & 15, state);
-            updated[index] = section.hasOnlyAir() ? null : section;
+            BlockState[] section = existing.clone();
+            section[index(pos.getX() & 15, pos.getY() & 15,
+                    pos.getZ() & 15)] = state;
+            boolean onlyAir = true;
+            for (BlockState candidate : section) {
+                if (candidate != null && !candidate.isAir()) {
+                    onlyAir = false;
+                    break;
+                }
+            }
+            updated[index] = onlyAir ? null : section;
         }
         return new ExactChunkSnapshot(
                 chunkX, chunkZ, minSection, minY, maxY,
@@ -104,10 +118,14 @@ public final class ExactChunkSnapshot {
         }
         int index = (y >> 4) - minSection;
         if (index < 0 || index >= sections.length) return AIR;
-        LevelChunkSection section = sections[index];
+        BlockState[] section = sections[index];
         return section == null
                 ? AIR
-                : section.getBlockState(x & 15, y & 15, z & 15);
+                : section[index(x & 15, y & 15, z & 15)];
+    }
+
+    private static int index(int x, int y, int z) {
+        return (y << 8) | (z << 4) | x;
     }
 
     public long revision() {

@@ -112,7 +112,7 @@ public class MovementFall extends Movement {
 
             if (ctx.player().position().y - dest.getY() < RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
                     && !ctx.player().onGround()) {
-                ctx.player().getInventory().setSelectedSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_WATER));
+                ctx.player().getInventory().selected = ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_WATER);
 
                 targetRotation = new Rotation(toDest.getYaw(), 90.0F);
 
@@ -130,7 +130,7 @@ public class MovementFall extends Movement {
         if (playerFeet.equals(dest) && (ctx.player().position().y - playerFeet.getY() < 0.094 || isWater)) { // 0.094 because lilypads
             if (isWater) { // only match water, not flowing water (which we cannot pick up with a bucket)
                 if (Inventory.isHotbarSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_EMPTY))) {
-                    ctx.player().getInventory().setSelectedSlot(ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_EMPTY));
+                    ctx.player().getInventory().selected = ctx.player().getInventory().findSlotMatchingItem(STACK_BUCKET_EMPTY);
                     if (ctx.player().getDeltaMovement().y >= 0) {
                         if (baritone instanceof Baritone serverBaritone) {
                             serverBaritone.getFakeInteractionController()
@@ -156,7 +156,7 @@ public class MovementFall extends Movement {
             }
             state.setInput(Input.MOVE_FORWARD, true);
         }
-        Vec3i avoid = Optional.ofNullable(avoid()).map(Direction::getUnitVec3i).orElse(null);
+        Vec3i avoid = Optional.ofNullable(avoid()).map(Direction::getNormal).orElse(null);
         if (avoid == null) {
             avoid = src.subtract(dest);
         } else {

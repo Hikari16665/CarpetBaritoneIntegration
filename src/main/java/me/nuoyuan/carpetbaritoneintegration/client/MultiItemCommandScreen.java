@@ -253,7 +253,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
         ResourceLocation id = ResourceLocation.tryParse(
                 value.contains(":") ? value : "minecraft:" + value);
         return id == null ? ItemStack.EMPTY
-                : new ItemStack(BuiltInRegistries.ITEM.getValue(id));
+                : new ItemStack(BuiltInRegistries.ITEM.get(id));
     }
 
     @Override

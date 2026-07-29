@@ -98,8 +98,8 @@ public final class ClientPathRenderer {
                     for (PathSnapshotPayload.GoalRender goal
                             : snapshot.goals()) {
                         drawGoal(lines, pose, camera, goal, settings,
-                                client.level.getMinY(),
-                                client.level.getMaxY());
+                                client.level.getMinBuildHeight(),
+                                client.level.getMaxBuildHeight());
                     }
                 } else if (snapshot.goal() != null) {
                     drawGoal(lines, pose, camera, snapshot.goal(),

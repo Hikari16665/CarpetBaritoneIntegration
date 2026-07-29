@@ -16,16 +16,17 @@ import java.util.Optional;
 /** Sponge schematic v1/v2 parser, adapted directly from upstream Baritone. */
 public final class SpongeSchematic extends StaticSchematic {
     public SpongeSchematic(CompoundTag nbt) {
-        x = nbt.getInt("Width").orElse(0);
-        y = nbt.getInt("Height").orElse(0);
-        z = nbt.getInt("Length").orElse(0);
+        x = nbt.getInt("Width");
+        y = nbt.getInt("Height");
+        z = nbt.getInt("Length");
         states = new BlockState[x][z][y];
         Map<Integer, BlockState> palette = new HashMap<>();
-        CompoundTag paletteTag = nbt.getCompound("Palette").orElse(new CompoundTag());
-        for (String serialized : paletteTag.keySet()) {
-            palette.put(paletteTag.getInt(serialized).orElse(0), parseState(serialized));
+        CompoundTag paletteTag = nbt.getCompound("Palette");
+        for (String serialized : paletteTag.getAllKeys()) {
+            palette.put(paletteTag.getInt(serialized),
+                    parseState(serialized));
         }
-        byte[] raw = nbt.getByteArray("BlockData").orElseThrow();
+        byte[] raw = nbt.getByteArray("BlockData");
         int offset = 0;
         for (int yy = 0; yy < y; yy++) {
             for (int zz = 0; zz < z; zz++) {
@@ -50,7 +51,7 @@ public final class SpongeSchematic extends StaticSchematic {
         int bracket = text.indexOf('[');
         String idText = bracket < 0 ? text : text.substring(0, bracket);
         ResourceLocation id = ResourceLocation.tryParse(idText);
-        Block block = id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.getValue(id);
+        Block block = id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.get(id);
         if (block == null) block = Blocks.AIR;
         BlockState state = block.defaultBlockState();
         if (bracket >= 0 && text.endsWith("]")) {

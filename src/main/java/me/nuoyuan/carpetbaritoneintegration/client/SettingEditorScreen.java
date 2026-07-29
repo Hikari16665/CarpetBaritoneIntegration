@@ -332,7 +332,7 @@ final class SettingEditorScreen extends AbstractScreen {
                 ResourceLocation id = ResourceLocation.tryParse(value);
                 listIcons.get(row).setItemStack(id == null
                         ? ItemStack.EMPTY : new ItemStack(
-                        BuiltInRegistries.ITEM.getValue(id)));
+                        BuiltInRegistries.ITEM.get(id)));
             }
         }
     }

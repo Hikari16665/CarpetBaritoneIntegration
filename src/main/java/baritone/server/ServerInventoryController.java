@@ -83,7 +83,7 @@ public final class ServerInventoryController {
     }
 
     public boolean selectItem(Predicate<ItemStack> desired) {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         int accessibleSlots = Baritone.settings().allowInventory.value
                 ? inventory.size() : Math.min(9, inventory.size());
         for (int index = 0; index < accessibleSlots; index++) {
@@ -116,7 +116,7 @@ public final class ServerInventoryController {
             return selectItem(desired);
         }
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         int slot = findSlot(desired);
         if (slot < 0 && extractOneFromShulker(desired)) {
             slot = findSlot(desired);
@@ -130,7 +130,7 @@ public final class ServerInventoryController {
             player.inventoryMenu.broadcastChanges();
             slot = destination;
         }
-        player.getInventory().setSelectedSlot(slot);
+        player.getInventory().selected = slot;
         return true;
     }
 
@@ -146,7 +146,7 @@ public final class ServerInventoryController {
     }
 
     public boolean hasAccessibleItem(Predicate<ItemStack> desired) {
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (desired.test(stack)) return true;
             if (isShulker(stack) && contents(stack).nonEmptyStream()
                     .anyMatch(desired)) return true;
@@ -156,7 +156,7 @@ public final class ServerInventoryController {
 
     public int countAccessible(Predicate<ItemStack> desired) {
         int result = 0;
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (desired.test(stack)) result += stack.getCount();
             if (isShulker(stack)) {
                 result += contents(stack).nonEmptyStream()
@@ -169,7 +169,7 @@ public final class ServerInventoryController {
     /** Performs the inventory swap used by upstream elytra safety logic. */
     public boolean equipBestElytra(int minimumRemainingDurability) {
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         int bestSlot = -1;
         int bestRemaining = minimumRemainingDurability;
         for (int slot = 0; slot < inventory.size(); slot++) {
@@ -197,7 +197,7 @@ public final class ServerInventoryController {
      * fastest tool to hotbar slot zero.
      */
     public void ensureBestToolOnHotbar(BlockState state) {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         boolean allowInventory = Baritone.settings().allowInventory.value;
         int accessibleSlots = allowInventory
                 ? inventory.size() : Math.min(9, inventory.size());
@@ -234,7 +234,7 @@ public final class ServerInventoryController {
     private ToolLocation bestNestedTool(BlockState state) {
         ToolLocation best = null;
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         for (int boxSlot = 0; boxSlot < inventory.size(); boxSlot++) {
             ItemStack box = inventory.get(boxSlot);
             if (!isShulker(box)) continue;
@@ -267,7 +267,7 @@ public final class ServerInventoryController {
 
     private boolean extractOneFromShulker(Predicate<ItemStack> desired) {
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         for (int boxSlot = 0; boxSlot < inventory.size(); boxSlot++) {
             ItemStack box = inventory.get(boxSlot);
             if (!isShulker(box)) continue;
@@ -285,7 +285,7 @@ public final class ServerInventoryController {
 
     private boolean extractFromShulker(int boxSlot, int innerSlot) {
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         ItemStack box = inventory.get(boxSlot);
         if (!isShulker(box)) return false;
         NonNullList<ItemStack> inner =
@@ -341,7 +341,7 @@ public final class ServerInventoryController {
             int boxSlot, int innerSlot, double speed) {}
 
     private int findThrowawaySlot() {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack stack = inventory.get(slot);
             if (!stack.isEmpty() && isAcceptable(stack.getItem())) {
@@ -352,7 +352,7 @@ public final class ServerInventoryController {
     }
 
     private int findSlot(Predicate<ItemStack> desired) {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         for (int slot = 0; slot < inventory.size(); slot++) {
             if (!inventory.get(slot).isEmpty() && desired.test(inventory.get(slot))) return slot;
         }
@@ -361,7 +361,7 @@ public final class ServerInventoryController {
 
     private boolean selectInventorySlot(
             int inventorySlot, int destinationHotbarSlot) {
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         int selected = inventorySlot;
         if (inventorySlot >= 9) {
             if (!Baritone.settings().allowInventory.value
@@ -375,7 +375,7 @@ public final class ServerInventoryController {
             markInventoryMoved();
             selected = destinationHotbarSlot;
         }
-        player.getInventory().setSelectedSlot(selected);
+        player.getInventory().selected = selected;
         return true;
     }
 

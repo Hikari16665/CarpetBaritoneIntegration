@@ -350,7 +350,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
          * shulkers is handed over, including surplus acquired in the batch.
          */
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         Item activeItem = item;
         int delivered = 0;
         for (Item requested : requestedItems.keySet()) {
@@ -635,7 +635,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         int result = 0;
         for (ItemStack stack :
                 baritone.getPlayerContext().player().getInventory()
-                        .getNonEquipmentItems()) {
+                        .items) {
             if (stack.is(item)) result += stack.getCount();
             result += boxedTargetCount(stack);
         }
@@ -647,7 +647,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         int result = 0;
         for (ItemStack stack :
                 baritone.getPlayerContext().player().getInventory()
-                        .getNonEquipmentItems()) {
+                        .items) {
             for (Item requested : requestedItems.keySet()) {
                 if (stack.is(requested)) result += stack.getCount();
                 result += boxedItemCount(stack, requested);

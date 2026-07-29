@@ -110,8 +110,8 @@ public class CalculationContext {
         this.baritone = baritone;
         ServerPlayer player = baritone.getPlayerContext().player();
         this.world = baritone.getPlayerContext().world();
-        this.minY = world.getMinY();
-        this.maxY = world.getMaxY();
+        this.minY = world.getMinBuildHeight();
+        this.maxY = world.getMaxBuildHeight();
         this.height = maxY - minY;
         this.bsi = new BlockStateInterface(baritone.getPlayerContext(), forUseOnAnotherThread);
         this.toolSet = new ToolSet(player);

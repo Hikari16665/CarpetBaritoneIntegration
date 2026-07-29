@@ -5,8 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "MsgCommandMixin",
-    "LevelBlockChangeMixin",
-    "MinecraftServerEmptyPauseMixin"
+    "LevelBlockChangeMixin"
   ],
   "client": [
     "client.LitematicaMaterialListMixin",

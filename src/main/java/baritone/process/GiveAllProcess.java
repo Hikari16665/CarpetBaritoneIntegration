@@ -21,8 +21,7 @@ public final class GiveAllProcess implements IGiveAllProcess {
             EquipmentSlot.LEGS,
             EquipmentSlot.CHEST,
             EquipmentSlot.HEAD,
-            EquipmentSlot.BODY,
-            EquipmentSlot.SADDLE
+            EquipmentSlot.BODY
     };
 
     private final Baritone baritone;
@@ -60,7 +59,7 @@ public final class GiveAllProcess implements IGiveAllProcess {
         int stacks = 0;
         int items = 0;
         NonNullList<ItemStack> inventory =
-                player.getInventory().getNonEquipmentItems();
+                player.getInventory().items;
         for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack stack = inventory.get(slot);
             if (stack.isEmpty()) continue;

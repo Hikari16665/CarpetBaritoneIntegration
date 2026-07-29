@@ -625,7 +625,7 @@ public final class BasicGoalCommandHandler {
         BlockPos feet = fakePlayer.blockPosition();
         for (int y = Math.max(feet.getY() + 1,
                 fakePlayer.level().getSeaLevel());
-             y < fakePlayer.level().getMaxY(); y++) {
+             y < fakePlayer.level().getMaxBuildHeight(); y++) {
             BlockPos solid = new BlockPos(feet.getX(), y, feet.getZ());
             if (!fakePlayer.level().getBlockState(solid).isAir()
                     && fakePlayer.level().getBlockState(
@@ -1656,7 +1656,7 @@ public final class BasicGoalCommandHandler {
         if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("未知方块 ID: " + value);
         }
-        Block block = BuiltInRegistries.BLOCK.getValue(id);
+        Block block = BuiltInRegistries.BLOCK.get(id);
         if (block == Blocks.AIR) {
             throw new IllegalArgumentException("不能把空气作为方块目标");
         }
@@ -1669,7 +1669,7 @@ public final class BasicGoalCommandHandler {
         if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("未知物品 ID: " + value);
         }
-        Item item = BuiltInRegistries.ITEM.getValue(id);
+        Item item = BuiltInRegistries.ITEM.get(id);
         if (item == net.minecraft.world.item.Items.AIR) {
             throw new IllegalArgumentException("不能把空气作为物品目标");
         }

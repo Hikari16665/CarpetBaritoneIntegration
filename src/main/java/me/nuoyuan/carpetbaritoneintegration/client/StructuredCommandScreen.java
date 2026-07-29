@@ -505,7 +505,7 @@ final class StructuredCommandScreen extends AbstractScreen {
         ResourceLocation id = ResourceLocation.tryParse(
                 raw.contains(":") ? raw : "minecraft:" + raw);
         preview.setItemStack(id == null ? ItemStack.EMPTY
-                : new ItemStack(BuiltInRegistries.ITEM.getValue(id)));
+                : new ItemStack(BuiltInRegistries.ITEM.get(id)));
     }
 
     private String currentX() {

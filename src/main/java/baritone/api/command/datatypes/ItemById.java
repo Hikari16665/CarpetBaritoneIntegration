@@ -15,7 +15,7 @@ public enum ItemById implements IDatatypeFor<Item> {
         if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("unknown item " + value);
         }
-        return BuiltInRegistries.ITEM.getValue(id);
+        return BuiltInRegistries.ITEM.get(id);
     }
     @Override public Stream<String> tabComplete(IDatatypeContext context) throws CommandException {
         String prefix = context.getConsumer().getString().toLowerCase();

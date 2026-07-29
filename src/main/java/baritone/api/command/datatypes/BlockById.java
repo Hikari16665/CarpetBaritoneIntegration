@@ -15,7 +15,7 @@ public enum BlockById implements IDatatypeFor<Block> {
         if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("unknown block " + value);
         }
-        return BuiltInRegistries.BLOCK.getValue(id);
+        return BuiltInRegistries.BLOCK.get(id);
     }
     @Override public Stream<String> tabComplete(IDatatypeContext context) throws CommandException {
         String prefix = context.getConsumer().getString().toLowerCase();

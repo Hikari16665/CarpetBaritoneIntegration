@@ -15,7 +15,7 @@ public enum EntityClassById implements IDatatypeFor<EntityType<?>> {
         if (id == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
             throw new IllegalArgumentException("unknown entity " + value);
         }
-        return BuiltInRegistries.ENTITY_TYPE.getValue(id);
+        return BuiltInRegistries.ENTITY_TYPE.get(id);
     }
     @Override public Stream<String> tabComplete(IDatatypeContext context) throws CommandException {
         String prefix = context.getConsumer().getString().toLowerCase();

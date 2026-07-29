@@ -31,7 +31,7 @@ public final class BlockOptionalMeta {
         if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("Invalid block name " + idText);
         }
-        this.block = BuiltInRegistries.BLOCK.getValue(id);
+        this.block = BuiltInRegistries.BLOCK.get(id);
         Map<String, String> requested = bracket < 0
                 ? Collections.emptyMap()
                 : java.util.Arrays.stream(selector.substring(bracket + 1, selector.length() - 1)

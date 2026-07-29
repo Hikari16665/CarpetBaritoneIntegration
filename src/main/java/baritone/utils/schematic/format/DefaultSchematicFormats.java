@@ -19,8 +19,9 @@ public enum DefaultSchematicFormats implements ISchematicFormat {
     SPONGE(List.of("schem")) {
         @Override
         protected IStaticSchematic parseTag(CompoundTag tag) throws IOException {
-            CompoundTag schematic = tag.getCompound("Schematic").orElse(tag);
-            int version = schematic.getInt("Version").orElse(0);
+            CompoundTag schematic = tag.contains("Schematic")
+                    ? tag.getCompound("Schematic") : tag;
+            int version = schematic.getInt("Version");
             if (version != 1 && version != 2) {
                 throw new IOException("Unsupported Sponge schematic version " + version);
             }

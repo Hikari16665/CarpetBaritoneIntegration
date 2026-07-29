@@ -152,7 +152,7 @@ public final class TrashDiscardController {
 
     private List<InventoryCount> snapshotInventory() {
         List<InventoryCount> result = new ArrayList<>();
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (stack.isEmpty()) continue;
             InventoryCount existing = result.stream()
                     .filter(entry -> ItemStack.isSameItemSameComponents(
@@ -201,7 +201,7 @@ public final class TrashDiscardController {
 
     private int countInInventory(ItemStack template) {
         int count = 0;
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (ItemStack.isSameItemSameComponents(stack, template)) {
                 count += stack.getCount();
             }
@@ -211,7 +211,7 @@ public final class TrashDiscardController {
 
     private List<ItemStack> removeFromInventory(ItemStack template, int requested) {
         List<ItemStack> removed = new ArrayList<>();
-        NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
+        NonNullList<ItemStack> inventory = player.getInventory().items;
         int remaining = requested;
         for (int slot = inventory.size() - 1; slot >= 0 && remaining > 0; slot--) {
             ItemStack stack = inventory.get(slot);

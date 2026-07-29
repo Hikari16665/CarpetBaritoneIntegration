@@ -570,7 +570,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     private void primeDesiredDrops() {
         BlockPos samplePos = ctx.playerFeet();
         List<ItemStack> tools = new ArrayList<>(
-                ctx.player().getInventory().getNonEquipmentItems());
+                ctx.player().getInventory().items);
         tools.add(ItemStack.EMPTY);
         for (BlockOptionalMeta selector : filter.blocks()) {
             Block block = selector.getBlock();

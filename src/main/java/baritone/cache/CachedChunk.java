@@ -71,7 +71,7 @@ public final class CachedChunk {
 
     public static CachedChunk pack(LevelChunk chunk) {
         ServerLevel world = (ServerLevel) chunk.getLevel();
-        int minY = chunk.getMinY();
+        int minY = chunk.getMinBuildHeight();
         int height = world.getHeight();
         BitSet bits = new BitSet(16 * 16 * height * 2);
         LevelChunkSection[] sections = chunk.getSections();

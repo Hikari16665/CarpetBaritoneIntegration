@@ -3,11 +3,11 @@ package baritone.utils.schematic.format;
 import baritone.api.schematic.CompositeSchematic;
 import baritone.api.schematic.IStaticSchematic;
 import baritone.utils.schematic.StaticSchematic;
-import net.minecraft.core.Holder;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -22,11 +22,13 @@ import java.util.Optional;
 public final class LitematicaSchematic extends CompositeSchematic implements IStaticSchematic {
     public LitematicaSchematic(CompoundTag root) throws IOException {
         super(0, 0, 0);
-        CompoundTag regions = root.getCompound("Regions").orElseThrow(
-                () -> new IOException("Litematic has no Regions compound"));
-        CompoundTag[] values = regions.values().stream()
-                .filter(CompoundTag.class::isInstance)
-                .map(CompoundTag.class::cast).toArray(CompoundTag[]::new);
+        if (!root.contains("Regions", Tag.TAG_COMPOUND)) {
+            throw new IOException("Litematic has no Regions compound");
+        }
+        CompoundTag regions = root.getCompound("Regions");
+        CompoundTag[] values = regions.getAllKeys().stream()
+                .filter(key -> regions.contains(key, Tag.TAG_COMPOUND))
+                .map(regions::getCompound).toArray(CompoundTag[]::new);
         if (values.length == 0) throw new IOException("Litematic has no regions");
         Vec3i minimum = new Vec3i(minimum(values, "x"), minimum(values, "y"), minimum(values, "z"));
         for (CompoundTag region : values) readRegion(region, minimum);
@@ -39,26 +41,27 @@ public final class LitematicaSchematic extends CompositeSchematic implements ISt
     }
 
     private static int regionMinimum(CompoundTag region, String axis) {
-        int position = region.getCompound("Position").flatMap(tag -> tag.getInt(axis)).orElse(0);
-        int size = region.getCompound("Size").flatMap(tag -> tag.getInt(axis)).orElse(0);
+        int position = region.getCompound("Position").getInt(axis);
+        int size = region.getCompound("Size").getInt(axis);
         return Math.min(position, position + size + 1);
     }
 
     private void readRegion(CompoundTag region, Vec3i minimum) throws IOException {
-        ListTag paletteTag = region.getListOrEmpty("BlockStatePalette");
+        ListTag paletteTag = region.getList(
+                "BlockStatePalette", Tag.TAG_COMPOUND);
         if (paletteTag.isEmpty()) throw new IOException("Litematic region has an empty palette");
         BlockState[] palette = new BlockState[paletteTag.size()];
         for (int i = 0; i < palette.length; i++) {
             palette[i] = readState((CompoundTag) paletteTag.get(i));
         }
-        CompoundTag sizeTag = region.getCompound("Size").orElse(new CompoundTag());
-        int sizeX = Math.abs(sizeTag.getInt("x").orElse(0));
-        int sizeY = Math.abs(sizeTag.getInt("y").orElse(0));
-        int sizeZ = Math.abs(sizeTag.getInt("z").orElse(0));
+        CompoundTag sizeTag = region.getCompound("Size");
+        int sizeX = Math.abs(sizeTag.getInt("x"));
+        int sizeY = Math.abs(sizeTag.getInt("y"));
+        int sizeZ = Math.abs(sizeTag.getInt("z"));
         long volume = (long) sizeX * sizeY * sizeZ;
         int bits = Math.max(2, 32 - Integer.numberOfLeadingZeros(palette.length - 1));
         PackedStates packed = new PackedStates(bits, volume,
-                region.getLongArray("BlockStates").orElse(new long[0]));
+                region.getLongArray("BlockStates"));
         BlockState[][][] states = new BlockState[sizeX][sizeZ][sizeY];
         long index = 0;
         for (int y = 0; y < sizeY; y++) for (int z = 0; z < sizeZ; z++) {
@@ -75,14 +78,16 @@ public final class LitematicaSchematic extends CompositeSchematic implements ISt
     }
 
     private static BlockState readState(CompoundTag tag) {
-        ResourceLocation id = ResourceLocation.tryParse(tag.getString("Name").orElse(""));
-        Block block = id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.get(id)
-                .map(Holder.Reference::value).orElse(Blocks.AIR);
+        ResourceLocation id = ResourceLocation.tryParse(tag.getString("Name"));
+        Block block = id == null ? Blocks.AIR
+                : BuiltInRegistries.BLOCK.get(id);
+        if (block == null) block = Blocks.AIR;
         BlockState state = block.defaultBlockState();
-        CompoundTag properties = tag.getCompound("Properties").orElse(new CompoundTag());
-        for (String name : properties.keySet()) {
+        CompoundTag properties = tag.getCompound("Properties");
+        for (String name : properties.getAllKeys()) {
             Property<?> property = block.getStateDefinition().getProperty(name);
-            if (property != null) state = setProperty(state, property, properties.getString(name).orElse(""));
+            if (property != null) state = setProperty(
+                    state, property, properties.getString(name));
         }
         return state;
     }

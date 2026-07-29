@@ -163,8 +163,8 @@ public final class CarpetInputController implements IInputOverrideHandler {
                     state.getBlock(),
                     Baritone.settings().preferSilkTouch.value
             );
-            if (player.getInventory().getSelectedSlot() != bestSlot) {
-                player.getInventory().setSelectedSlot(bestSlot);
+            if (player.getInventory().selected != bestSlot) {
+                player.getInventory().selected = bestSlot;
             }
         }
         if (player.getAbilities().instabuild) {

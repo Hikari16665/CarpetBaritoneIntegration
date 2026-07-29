@@ -437,7 +437,7 @@ public final class ServerWorldCache implements ICachedWorld {
             int maxRegionDistanceSq) {
         removeExpired();
         ResourceLocation id = ResourceLocation.tryParse(blockName);
-        Block block = id == null ? null : BuiltInRegistries.BLOCK.getValue(id);
+        Block block = id == null ? null : BuiltInRegistries.BLOCK.get(id);
         if (block == null || maximum <= 0) return new ArrayList<>();
         return indexedBlocks.getOrDefault(block, Set.of()).stream()
                 .filter(pos -> {
@@ -657,7 +657,7 @@ public final class ServerWorldCache implements ICachedWorld {
                 for (int type = 0; type < blockTypes; type++) {
                     ResourceLocation id = ResourceLocation.tryParse(input.readUTF());
                     Block block = id == null ? Blocks.AIR
-                            : BuiltInRegistries.BLOCK.getValue(id);
+                            : BuiltInRegistries.BLOCK.get(id);
                     int positions = input.readInt();
                     if (positions < 0 || positions > 65536) {
                         throw new IOException("Invalid block position count");

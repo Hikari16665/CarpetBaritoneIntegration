@@ -366,7 +366,8 @@ public final class ServerFakeInteractionController {
                 || !placed.canSurvive(player.level(), target)
                 || !player.level().isUnobstructed(
                         null, placed.getCollisionShape(
-                                player.level(), target).move(target))) {
+                                player.level(), target).move(
+                                target.getX(), target.getY(), target.getZ()))) {
             return false;
         }
         if (!player.level().setBlockAndUpdate(target, placed)) {
@@ -567,7 +568,8 @@ public final class ServerFakeInteractionController {
                 || !desired.canSurvive(player.level(), target)
                 || !player.level().isUnobstructed(
                         null, desired.getCollisionShape(
-                                player.level(), target).move(target))) {
+                                player.level(), target).move(
+                                target.getX(), target.getY(), target.getZ()))) {
             return false;
         }
         boolean supported = false;
@@ -621,7 +623,9 @@ public final class ServerFakeInteractionController {
                     || !player.level().isUnobstructed(
                             null, companion.state().getCollisionShape(
                                     player.level(), companion.pos())
-                                    .move(companion.pos()))) {
+                                    .move(companion.pos().getX(),
+                                            companion.pos().getY(),
+                                            companion.pos().getZ()))) {
                 return false;
             }
         }
@@ -825,7 +829,8 @@ public final class ServerFakeInteractionController {
                 || !desired.canSurvive(player.level(), target)
                 || !player.level().isUnobstructed(
                         null, desired.getCollisionShape(
-                                player.level(), target).move(target))) {
+                                player.level(), target).move(
+                                target.getX(), target.getY(), target.getZ()))) {
             return false;
         }
         if (!player.level().setBlockAndUpdate(target, desired)) {
@@ -854,7 +859,8 @@ public final class ServerFakeInteractionController {
                     || !supportState.getFluidState().isEmpty()) continue;
             Direction clickedFace = fromTarget.getOpposite();
             Vec3 faceCenter = support.getCenter().add(
-                    clickedFace.getUnitVec3().scale(0.5D));
+                    Vec3.atLowerCornerOf(
+                            clickedFace.getNormal()).scale(0.5D));
             BlockHitResult hit = new BlockHitResult(
                     faceCenter, clickedFace, support, false);
             lookAt(target);
@@ -942,7 +948,8 @@ public final class ServerFakeInteractionController {
             Direction face = fromTarget.getOpposite();
             BlockHitResult hit = new BlockHitResult(
                     support.getCenter().add(
-                            face.getUnitVec3().scale(0.5D)),
+                            Vec3.atLowerCornerOf(
+                                    face.getNormal()).scale(0.5D)),
                     face, support, false);
             lookAt(target);
             InteractionResult result = stack.useOn(new UseOnContext(
