@@ -67,7 +67,7 @@ jobs:
   release:
     name: Release changed version
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/multiver/')
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/multiver/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -94,7 +94,7 @@ jobs:
           fi
 
           changed=false
-          if [[ "$version" != "$previous" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$version" != "$previous" ]]; then
             changed=true
           fi
 
