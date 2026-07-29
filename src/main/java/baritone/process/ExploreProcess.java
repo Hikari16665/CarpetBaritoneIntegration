@@ -80,7 +80,7 @@ public final class ExploreProcess implements IExploreProcess {
             for (int dz = -radius; dz <= radius; dz++) {
                 if (baritone.getPlayerContext().world().getChunkSource()
                         .getChunkNow(centerX + dx, centerZ + dz) != null) {
-                    long key = ChunkPos.asLong(centerX + dx, centerZ + dz);
+                    long key = ChunkPos.pack(centerX + dx, centerZ + dz);
                     explored.add(key);
                 }
             }
@@ -100,7 +100,7 @@ public final class ExploreProcess implements IExploreProcess {
                     int dz = dzAbs * sign;
                     int chunkX = originChunkX + dx;
                     int chunkZ = originChunkZ + dz;
-                    long key = ChunkPos.asLong(chunkX, chunkZ);
+                    long key = ChunkPos.pack(chunkX, chunkZ);
                     if (!explored.contains(key) && !excludedByFilter(key)) {
                         goals.add(createGoal(
                                 explorationTarget(chunkX, dx),
@@ -168,7 +168,7 @@ public final class ExploreProcess implements IExploreProcess {
             Set<Long> loaded = new HashSet<>();
             if (positions != null) {
                 for (MyChunkPos position : positions) {
-                    loaded.add(ChunkPos.asLong(position.x, position.z));
+                    loaded.add(ChunkPos.pack(position.x, position.z));
                 }
             }
             jsonFilter = loaded;

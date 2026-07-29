@@ -94,7 +94,7 @@ final class StructuredCommandScreen extends AbstractScreen {
         updateModeVisibility();
         addWidget(new ButtonWidget(left, top + 178, 100, 22,
                 Component.literal("返回"), button ->
-                minecraft.setScreen(parent)));
+                minecraft.gui.setScreen(parent)));
         addWidget(new ButtonWidget(left + 108, top + 178, 212, 22,
                 Component.literal("执行"), button -> submit()));
         refreshFake();
@@ -212,7 +212,7 @@ final class StructuredCommandScreen extends AbstractScreen {
                 useMainHandInto(a));
         buildItemPicker = new ButtonWidget(x + 106, y + 80, 100, 20,
                 Component.literal("选择填充方块"), button ->
-                minecraft.setScreen(new ItemPickerScreen(this, true,
+                minecraft.gui.setScreen(new ItemPickerScreen(this, true,
                         value -> a.setValue(value))));
         addWidget(buildMainHand);
         addWidget(buildItemPicker);
@@ -413,7 +413,7 @@ final class StructuredCommandScreen extends AbstractScreen {
             ClientCommandSender.send(
                     fakeName(), command.command, args);
         }
-        minecraft.setScreen(parent);
+        minecraft.gui.setScreen(parent);
     }
 
     private String arguments() {
@@ -493,7 +493,7 @@ final class StructuredCommandScreen extends AbstractScreen {
     }
 
     private void pickItem(boolean blocksOnly) {
-        minecraft.setScreen(new ItemPickerScreen(this, blocksOnly, value -> {
+        minecraft.gui.setScreen(new ItemPickerScreen(this, blocksOnly, value -> {
             EditBoxWidget current = blocksOnly ? d : a;
             current.setValue(value);
             refreshPreview(value);
@@ -527,5 +527,5 @@ final class StructuredCommandScreen extends AbstractScreen {
         return value.startsWith("minecraft:")
                 ? value.substring(10) : value;
     }
-    @Override public void onClose() { minecraft.setScreen(parent); }
+    @Override public void onClose() { minecraft.gui.setScreen(parent); }
 }

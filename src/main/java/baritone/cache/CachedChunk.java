@@ -87,8 +87,8 @@ public final class CachedChunk {
                     for (int x = 0; x < 16; x++) {
                         BlockState state = section.getBlockState(x, y, z);
                         BlockPos position = new BlockPos(
-                                (chunk.getPos().x << 4) + x, absoluteY,
-                                (chunk.getPos().z << 4) + z);
+                                (chunk.getPos().x() << 4) + x, absoluteY,
+                                (chunk.getPos().z() << 4) + z);
                         boolean[] type = classify(state, world, position).getBits();
                         int index = index(x, absoluteY - minY, z);
                         bits.set(index, type[0]);
@@ -97,7 +97,7 @@ public final class CachedChunk {
                 }
             }
         }
-        return new CachedChunk(chunk.getPos().x, chunk.getPos().z,
+        return new CachedChunk(chunk.getPos().x(), chunk.getPos().z(),
                 minY, height, bits, System.currentTimeMillis());
     }
 

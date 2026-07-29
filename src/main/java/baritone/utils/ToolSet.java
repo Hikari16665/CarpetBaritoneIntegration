@@ -202,7 +202,7 @@ public class ToolSet {
             }
             ItemContainerContents contents = outer.getOrDefault(
                     DataComponents.CONTAINER, ItemContainerContents.EMPTY);
-            for (ItemStack nested : contents.nonEmptyItems()) {
+            for (ItemStack nested : contents.nonEmptyItemCopyStream().toList()) {
                 if (!Baritone.settings().useSwordToMine.value
                         && nested.is(ItemTags.SWORDS)) continue;
                 if (Baritone.settings().itemSaver.value

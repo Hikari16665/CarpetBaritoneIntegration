@@ -59,8 +59,8 @@ public final class ExactChunkSnapshot {
         }
         ServerLevel level = (ServerLevel) chunk.getLevel();
         return new ExactChunkSnapshot(
-                chunk.getPos().x,
-                chunk.getPos().z,
+                chunk.getPos().x(),
+                chunk.getPos().z(),
                 level.getMinSectionY(),
                 level.getMinY(),
                 level.getMaxY(),

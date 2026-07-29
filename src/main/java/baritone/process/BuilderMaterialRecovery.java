@@ -212,7 +212,7 @@ final class BuilderMaterialRecovery {
             if (requested.test(stack)) result += stack.getCount();
             if (isShulker(stack)) {
                 result += stack.getOrDefault(DataComponents.CONTAINER,
-                        ItemContainerContents.EMPTY).nonEmptyStream()
+                        ItemContainerContents.EMPTY).nonEmptyItemCopyStream()
                         .filter(requested)
                         .mapToInt(ItemStack::getCount).sum();
             }

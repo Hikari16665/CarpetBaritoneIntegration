@@ -33,7 +33,7 @@ public final class GameEventHandler implements IEventBus {
         var world = baritone.getPlayerContext().world();
         var cache = ServerWorldCache.get(world);
         var chunk = world.getChunkSource().getChunkNow(
-                e.getChunkPos().x, e.getChunkPos().z);
+                e.getChunkPos().x(), e.getChunkPos().z());
         if (chunk != null) {
             e.getBlocks().forEach(change ->
                     cache.updateBlock(change.first(),

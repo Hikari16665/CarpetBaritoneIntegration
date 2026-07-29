@@ -7,9 +7,8 @@ import net.minecraft.network.chat.Component;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import org.lwjgl.glfw.GLFW;
 
@@ -33,9 +32,9 @@ public final class CarpetBaritoneIntegrationClient
                         context.client().execute(() -> {
                             if (!payload.success()
                                     && context.client().player != null) {
-                                context.client().player.displayClientMessage(
+                                context.client().player.sendSystemMessage(
                                         Component.literal("[CBI] "
-                                                + payload.message()), false);
+                                                + payload.message()));
                             }
                         }));
         ClientPlayConnectionEvents.DISCONNECT.register(
@@ -43,15 +42,13 @@ public final class CarpetBaritoneIntegrationClient
                     ClientPathRenderer.clear();
                     ClientControlOptions.clear();
                 });
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(
-                ClientPathRenderer::render);
-        openControl = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+        openControl = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.carpetbaritoneintegration.open_control",
                 GLFW.GLFW_KEY_B,
                 KeyMapping.Category.MISC));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openControl.consumeClick()) {
-                client.setScreen(new BaritoneControlScreen());
+                client.gui.setScreen(new BaritoneControlScreen());
             }
         });
     }

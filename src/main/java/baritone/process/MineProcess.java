@@ -319,7 +319,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                                 : pos.getY() == origin.getY() ? 2 : 3)
                 .thenComparingDouble(pos ->
                         ctx.player().getEyePosition().distanceToSqr(
-                                pos.getCenter())));
+                                net.minecraft.world.phys.Vec3.atCenterOf(pos))));
         for (BlockPos pos : candidates) {
             BlockState state = ctx.world().getBlockState(pos);
             if (state.isAir()

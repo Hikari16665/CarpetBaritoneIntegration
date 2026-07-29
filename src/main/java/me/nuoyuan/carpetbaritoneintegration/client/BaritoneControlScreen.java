@@ -57,7 +57,7 @@ public final class BaritoneControlScreen extends AbstractScreen {
             EmptyComponent row, ControlCommand command, int x) {
         row.addWidget(new ButtonWidget(
                 x, 0, 150, 22, Component.literal(command.title),
-                button -> minecraft.setScreen(command == ControlCommand.SETTINGS
+                button -> minecraft.gui.setScreen(command == ControlCommand.SETTINGS
                         ? new SettingsListScreen(this)
                         : command.kind == Kind.MULTI_BLOCK
                         || command.kind == Kind.MULTI_ITEM_AMOUNT_PLAYER

@@ -151,7 +151,7 @@ public class Carpetbaritoneintegration implements ModInitializer {
                         new BlockInteractEvent(pos,
                                 BlockInteractEvent.Type.START_BREAK));
                 if (instance != null) instance.getGameEventHandler().onBlockChange(
-                        new BlockChangeEvent(new ChunkPos(pos),
+                        new BlockChangeEvent(ChunkPos.containing(pos),
                                 List.of(new Pair<>(pos.immutable(),
                                         level.getBlockState(pos)))));
             }
@@ -176,12 +176,12 @@ public class Carpetbaritoneintegration implements ModInitializer {
             }
             return InteractionResult.PASS;
         });
-        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) ->
+        ServerChunkEvents.CHUNK_LOAD.register((world, chunk, generated) ->
                 BARITONES.forEach(instance -> {
                     if (instance.getPlayerContext().world() == world) {
                         instance.getGameEventHandler().onChunkEvent(new ChunkEvent(
                                 EventState.POST, ChunkEvent.Type.LOAD,
-                                chunk.getPos().x, chunk.getPos().z));
+                                chunk.getPos().x(), chunk.getPos().z()));
                     }
                 }));
         ServerChunkEvents.CHUNK_UNLOAD.register((world, chunk) ->
@@ -189,7 +189,7 @@ public class Carpetbaritoneintegration implements ModInitializer {
                     if (instance.getPlayerContext().world() == world) {
                         instance.getGameEventHandler().onChunkEvent(new ChunkEvent(
                                 EventState.PRE, ChunkEvent.Type.UNLOAD,
-                                chunk.getPos().x, chunk.getPos().z));
+                                chunk.getPos().x(), chunk.getPos().z()));
                     }
                 }));
     }

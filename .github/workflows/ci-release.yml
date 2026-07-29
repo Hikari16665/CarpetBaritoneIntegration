@@ -27,11 +27,18 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Set up Java 21
+      - name: Read Java version
+        id: java
+        shell: bash
+        run: |
+          java_version="$(sed -n 's/^java_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          echo "version=${java_version:-21}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java ${{ steps.java.outputs.version }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ steps.java.outputs.version }}
           cache: gradle
 
       - name: Validate Gradle wrapper

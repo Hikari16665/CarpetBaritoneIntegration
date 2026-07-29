@@ -70,7 +70,7 @@ public final class BlockStateInterface {
     public boolean worldContainsLoadedChunk(int blockX, int blockZ) {
         if (threaded) {
             return exactSnapshots.containsKey(
-                    net.minecraft.world.level.ChunkPos.asLong(
+                    net.minecraft.world.level.ChunkPos.pack(
                             blockX >> 4, blockZ >> 4));
         }
         return world.hasChunk(blockX >> 4, blockZ >> 4);
@@ -78,7 +78,7 @@ public final class BlockStateInterface {
 
     public boolean isLoaded(int blockX, int blockZ) {
         if (threaded) {
-            long key = net.minecraft.world.level.ChunkPos.asLong(
+            long key = net.minecraft.world.level.ChunkPos.pack(
                     blockX >> 4, blockZ >> 4);
             return exactSnapshots.containsKey(key)
                     || (Baritone.settings().chunkCaching.value
@@ -107,12 +107,12 @@ public final class BlockStateInterface {
         }
         if (threaded) {
             ExactChunkSnapshot exact = exactSnapshots.get(
-                    net.minecraft.world.level.ChunkPos.asLong(
+                    net.minecraft.world.level.ChunkPos.pack(
                             x >> 4, z >> 4));
             if (exact != null) return exact.getBlockState(x, y, z);
             if (!Baritone.settings().chunkCaching.value) return AIR;
             CachedChunk chunk = compactSnapshots.get(
-                    net.minecraft.world.level.ChunkPos.asLong(
+                    net.minecraft.world.level.ChunkPos.pack(
                             x >> 4, z >> 4));
             return chunk == null ? AIR : chunk.getBlock(
                     x & 15, y - chunk.minY(), z & 15, dimensionType);

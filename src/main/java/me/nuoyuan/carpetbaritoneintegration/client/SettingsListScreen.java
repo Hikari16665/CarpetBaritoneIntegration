@@ -60,12 +60,12 @@ final class SettingsListScreen extends AbstractScreen {
         addWidget(search);
         addWidget(new ButtonWidget(left + 304, top + 44, 76, 20,
                 Component.literal("筛选"), button ->
-                minecraft.setScreen(new SettingsListScreen(
+                minecraft.gui.setScreen(new SettingsListScreen(
                         parent, search.getValue().trim()))));
         addSettingsScroll(filter);
         addWidget(new ButtonWidget(left, top + 244, 380, 22,
                 Component.literal("返回命令菜单"),
-                button -> minecraft.setScreen(parent)));
+                button -> minecraft.gui.setScreen(parent)));
         refreshFake();
         super.init();
     }
@@ -87,7 +87,7 @@ final class SettingsListScreen extends AbstractScreen {
                     : option.value();
             row.addWidget(new ButtonWidget(0, 0, 366, 22,
                     Component.literal(option.name() + " = " + value),
-                    button -> minecraft.setScreen(
+                    button -> minecraft.gui.setScreen(
                             new SettingEditorScreen(this, option,
                                     fakeName(fakeIndex)))));
             scroll.addComponent(row);
@@ -117,9 +117,9 @@ final class SettingsListScreen extends AbstractScreen {
     void optionsUpdated() {
         if (!awaitingInitialOptions) return;
         awaitingInitialOptions = false;
-        minecraft.setScreen(new SettingsListScreen(parent, filter));
+        minecraft.gui.setScreen(new SettingsListScreen(parent, filter));
     }
 
-    @Override public void onClose() { minecraft.setScreen(parent); }
+    @Override public void onClose() { minecraft.gui.setScreen(parent); }
 
 }

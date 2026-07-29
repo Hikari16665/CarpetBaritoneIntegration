@@ -109,7 +109,7 @@ public enum WorldScanner implements IWorldScanner {
         ServerWorldCache.registerTrackedBlocks(filter.blocks().stream()
                 .map(baritone.api.utils.BlockOptionalMeta::getBlock).toList());
         LevelChunk chunk = ctx.world().getChunkSource().getChunkNow(
-                pos.x, pos.z);
+                pos.x(), pos.z());
         List<BlockPos> result = new ArrayList<>();
         if (chunk != null) {
             cache.queueForPacking(chunk);
@@ -120,8 +120,8 @@ public enum WorldScanner implements IWorldScanner {
                 .flatMap(selector -> cache.locationsOfNear(
                         selector.getBlock(), ctx.playerFeet().getX(),
                         ctx.playerFeet().getZ(), 0, resultLimit).stream())
-                .filter(block -> (block.getX() >> 4) == pos.x
-                        && (block.getZ() >> 4) == pos.z)
+                .filter(block -> (block.getX() >> 4) == pos.x()
+                        && (block.getZ() >> 4) == pos.z())
                 .filter(block -> yLevelThreshold < 0
                         || Math.abs(block.getY()
                         - ctx.playerFeet().getY()) <= yLevelThreshold)
@@ -169,9 +169,9 @@ public enum WorldScanner implements IWorldScanner {
                             && result.size() < maximum; x++) {
                         if (filter.has(section.getBlockState(x, y, z))) {
                             result.add(new BlockPos(
-                                    (chunk.getPos().x << 4) + x,
+                                    (chunk.getPos().x() << 4) + x,
                                     worldY,
-                                    (chunk.getPos().z << 4) + z));
+                                    (chunk.getPos().z() << 4) + z));
                         }
                     }
                 }

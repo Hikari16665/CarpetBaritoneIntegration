@@ -49,7 +49,10 @@ public final class ServerWorldCache implements ICachedWorld {
     private static final int MAX_INDEXED_POSITIONS_PER_BLOCK_PER_CHUNK = 128;
     private static final Map<ServerLevel, ServerWorldCache> INSTANCES =
             Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Set<Block> TRACKED_BLOCKS = Set.of(
+    private static final Set<Block> TRACKED_BLOCKS = createTrackedBlocks();
+
+    private static Set<Block> createTrackedBlocks() {
+        Set<Block> blocks = new HashSet<>(Set.of(
             Blocks.CHEST, Blocks.TRAPPED_CHEST, Blocks.ENDER_CHEST,
             Blocks.FURNACE, Blocks.SPAWNER, Blocks.END_PORTAL,
             Blocks.END_PORTAL_FRAME, Blocks.NETHER_PORTAL, Blocks.HOPPER,
@@ -63,20 +66,11 @@ public final class ServerWorldCache implements ICachedWorld {
             Blocks.ZOMBIE_HEAD, Blocks.ZOMBIE_WALL_HEAD,
             Blocks.SKELETON_SKULL, Blocks.SKELETON_WALL_SKULL,
             Blocks.WITHER_SKELETON_SKULL, Blocks.WITHER_SKELETON_WALL_SKULL,
-            Blocks.WHITE_SHULKER_BOX, Blocks.ORANGE_SHULKER_BOX,
-            Blocks.MAGENTA_SHULKER_BOX, Blocks.LIGHT_BLUE_SHULKER_BOX,
-            Blocks.YELLOW_SHULKER_BOX, Blocks.LIME_SHULKER_BOX,
-            Blocks.PINK_SHULKER_BOX, Blocks.GRAY_SHULKER_BOX,
-            Blocks.LIGHT_GRAY_SHULKER_BOX, Blocks.CYAN_SHULKER_BOX,
-            Blocks.PURPLE_SHULKER_BOX, Blocks.BLUE_SHULKER_BOX,
-            Blocks.BROWN_SHULKER_BOX, Blocks.GREEN_SHULKER_BOX,
-            Blocks.RED_SHULKER_BOX, Blocks.BLACK_SHULKER_BOX,
-            Blocks.WHITE_BED, Blocks.ORANGE_BED, Blocks.MAGENTA_BED,
-            Blocks.LIGHT_BLUE_BED, Blocks.YELLOW_BED, Blocks.LIME_BED,
-            Blocks.PINK_BED, Blocks.GRAY_BED, Blocks.LIGHT_GRAY_BED,
-            Blocks.CYAN_BED, Blocks.PURPLE_BED, Blocks.BLUE_BED,
-            Blocks.BROWN_BED, Blocks.GREEN_BED, Blocks.RED_BED,
-            Blocks.BLACK_BED);
+            Blocks.SHULKER_BOX));
+        blocks.addAll(Blocks.DYED_SHULKER_BOX.asList());
+        blocks.addAll(Blocks.BED.asList());
+        return Set.copyOf(blocks);
+    }
     private static final Set<Block> DYNAMIC_TRACKED_BLOCKS =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final ThreadPoolExecutor PACKER =
@@ -149,7 +143,7 @@ public final class ServerWorldCache implements ICachedWorld {
         int queued = 0;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                if (pendingCaptures.add(ChunkPos.asLong(
+                if (pendingCaptures.add(ChunkPos.pack(
                         centerX + dx, centerZ + dz))) queued++;
             }
         }
@@ -207,7 +201,7 @@ public final class ServerWorldCache implements ICachedWorld {
                     int dz = dzAbs * sign;
                     int chunkX = centerChunkX + dx;
                     int chunkZ = centerChunkZ + dz;
-                    long key = ChunkPos.asLong(chunkX, chunkZ);
+                    long key = ChunkPos.pack(chunkX, chunkZ);
                     if (!exactSnapshots.containsKey(key)) {
                         LevelChunk chunk = world.getChunkSource()
                                 .getChunkNow(chunkX, chunkZ);
@@ -233,7 +227,7 @@ public final class ServerWorldCache implements ICachedWorld {
     }
 
     public synchronized void capture(LevelChunk chunk) {
-        long key = chunk.getPos().toLong();
+        long key = chunk.getPos().pack();
         ExactChunkSnapshot exact = exactSnapshots.get(key);
         if (exact == null) {
             exact = ExactChunkSnapshot.copyOf(
@@ -253,7 +247,7 @@ public final class ServerWorldCache implements ICachedWorld {
      */
     public synchronized void updateBlock(
             BlockPos pos, BlockState state, LevelChunk chunk) {
-        long key = chunk.getPos().toLong();
+        long key = chunk.getPos().pack();
         ExactChunkSnapshot previous = exactSnapshots.get(key);
         if (previous != null
                 && previous.getBlockState(
@@ -453,7 +447,7 @@ public final class ServerWorldCache implements ICachedWorld {
     }
 
     public synchronized CachedChunk cachedChunk(int chunkX, int chunkZ) {
-        long key = ChunkPos.asLong(chunkX, chunkZ);
+        long key = ChunkPos.pack(chunkX, chunkZ);
         CachedChunk chunk = snapshots.get(key);
         long expiry = Baritone.settings().cachedChunksExpirySeconds.value;
         if (chunk != null && expiry >= 0
@@ -497,7 +491,7 @@ public final class ServerWorldCache implements ICachedWorld {
      * starting chunk.
      */
     public synchronized void captureExact(LevelChunk chunk) {
-        long key = chunk.getPos().toLong();
+        long key = chunk.getPos().pack();
         if (!exactSnapshots.containsKey(key)) {
             exactSnapshots.put(key,
                     ExactChunkSnapshot.copyOf(
@@ -506,7 +500,7 @@ public final class ServerWorldCache implements ICachedWorld {
     }
 
     public synchronized boolean hasExactSnapshot(int chunkX, int chunkZ) {
-        return exactSnapshots.containsKey(ChunkPos.asLong(chunkX, chunkZ));
+        return exactSnapshots.containsKey(ChunkPos.pack(chunkX, chunkZ));
     }
 
     public synchronized long snapshotRevision() {
@@ -545,7 +539,7 @@ public final class ServerWorldCache implements ICachedWorld {
     }
 
     public synchronized void invalidateChunk(int chunkX, int chunkZ) {
-        long key = ChunkPos.asLong(chunkX, chunkZ);
+        long key = ChunkPos.pack(chunkX, chunkZ);
         observedChunks.remove(key);
         snapshots.remove(key);
         exactSnapshots.remove(key);
@@ -646,7 +640,7 @@ public final class ServerWorldCache implements ICachedWorld {
                 }
                 byte[] data = input.readNBytes(dataLength);
                 if (data.length != dataLength) throw new IOException("Truncated cache");
-                long key = ChunkPos.asLong(chunkX, chunkZ);
+                long key = ChunkPos.pack(chunkX, chunkZ);
                 loadedSnapshots.put(key, CachedChunk.fromData(
                         chunkX, chunkZ, minY, height, data, capturedAt));
                 int blockTypes = input.readInt();

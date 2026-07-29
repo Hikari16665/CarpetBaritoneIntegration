@@ -378,7 +378,7 @@ public final class CleanProcess implements ICleanProcess {
                     Vec3 eye = new Vec3(feet.getX() + 0.5D,
                             feet.getY() + 1.62D,
                             feet.getZ() + 0.5D);
-                    if (eye.distanceToSqr(block.getCenter()) > reachSq
+                    if (eye.distanceToSqr(Vec3.atCenterOf(block)) > reachSq
                             || !standable(feet)) {
                         continue;
                     }
@@ -403,13 +403,13 @@ public final class CleanProcess implements ICleanProcess {
 
     private boolean hypotheticalCanSee(Vec3 eye, BlockPos block) {
         Vec3[] samples = {
-                block.getCenter(),
-                block.getCenter().add(0.499D, 0D, 0D),
-                block.getCenter().add(-0.499D, 0D, 0D),
-                block.getCenter().add(0D, 0.499D, 0D),
-                block.getCenter().add(0D, -0.499D, 0D),
-                block.getCenter().add(0D, 0D, 0.499D),
-                block.getCenter().add(0D, 0D, -0.499D)
+                Vec3.atCenterOf(block),
+                Vec3.atCenterOf(block).add(0.499D, 0D, 0D),
+                Vec3.atCenterOf(block).add(-0.499D, 0D, 0D),
+                Vec3.atCenterOf(block).add(0D, 0.499D, 0D),
+                Vec3.atCenterOf(block).add(0D, -0.499D, 0D),
+                Vec3.atCenterOf(block).add(0D, 0D, 0.499D),
+                Vec3.atCenterOf(block).add(0D, 0D, -0.499D)
         };
         var world = baritone.getPlayerContext().world();
         for (Vec3 sample : samples) {

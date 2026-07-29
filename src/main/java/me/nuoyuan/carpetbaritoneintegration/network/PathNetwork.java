@@ -9,19 +9,19 @@ public final class PathNetwork {
 
     public static synchronized void registerCommon() {
         if (registered) return;
-        PayloadTypeRegistry.playS2C().register(
+        PayloadTypeRegistry.clientboundPlay().register(
                 PathSnapshotPayload.TYPE,
                 PathSnapshotPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playC2S().register(
+        PayloadTypeRegistry.serverboundPlay().register(
                 ControlOptionsRequestPayload.TYPE,
                 ControlOptionsRequestPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playS2C().register(
+        PayloadTypeRegistry.clientboundPlay().register(
                 ControlOptionsPayload.TYPE,
                 ControlOptionsPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playC2S().register(
+        PayloadTypeRegistry.serverboundPlay().register(
                 CommandSubmitPayload.TYPE,
                 CommandSubmitPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playS2C().register(
+        PayloadTypeRegistry.clientboundPlay().register(
                 CommandResultPayload.TYPE,
                 CommandResultPayload.STREAM_CODEC);
         registered = true;

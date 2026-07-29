@@ -558,7 +558,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         ItemContainerContents contents =
                 stack.getOrDefault(DataComponents.CONTAINER,
                         ItemContainerContents.EMPTY);
-        return contents.nonEmptyStream()
+        return contents.nonEmptyItemCopyStream()
                 .filter(inner -> inner.is(targetItem))
                 .mapToInt(ItemStack::getCount).sum();
     }
@@ -568,7 +568,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         ItemContainerContents contents =
                 stack.getOrDefault(DataComponents.CONTAINER,
                         ItemContainerContents.EMPTY);
-        List<ItemStack> slots = contents.stream().toList();
+        List<ItemStack> slots = contents.allItemsCopyStream().toList();
         return slots.size() == 27 && slots.stream().allMatch(inner ->
                 !inner.isEmpty() && inner.is(item)
                         && inner.getCount() == inner.getMaxStackSize());

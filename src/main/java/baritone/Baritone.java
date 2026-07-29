@@ -949,7 +949,7 @@ public final class Baritone implements IBaritone {
             IPath path, Map<Long, Long> submittedRevisions) {
         Set<Long> pathChunks = new HashSet<>();
         for (BetterBlockPos pos : path.positions()) {
-            pathChunks.add(net.minecraft.world.level.ChunkPos.asLong(
+            pathChunks.add(net.minecraft.world.level.ChunkPos.pack(
                     pos.x >> 4, pos.z >> 4));
         }
         ServerWorldCache cache = getWorldCache();

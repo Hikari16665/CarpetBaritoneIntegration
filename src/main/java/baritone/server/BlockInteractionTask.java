@@ -512,7 +512,7 @@ public final class BlockInteractionTask {
 
     private boolean withinReach(BlockPos pos) {
         return baritone.getPlayerContext().player().getEyePosition()
-                .distanceToSqr(pos.getCenter())
+                .distanceToSqr(net.minecraft.world.phys.Vec3.atCenterOf(pos))
                 <= RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE * RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
     }
 

@@ -83,8 +83,8 @@ public final class LitematicaCollectBridge {
 
     private static void open(List<MultiItemCommandScreen.Entry> entries) {
         Minecraft minecraft = Minecraft.getInstance();
-        Screen parent = minecraft.screen;
-        minecraft.setScreen(new MultiItemCommandScreen(parent,
+        Screen parent = minecraft.gui.screen();
+        minecraft.gui.setScreen(new MultiItemCommandScreen(parent,
                 BaritoneControlScreen.ControlCommand.COLLECT_ITEM, entries));
     }
 

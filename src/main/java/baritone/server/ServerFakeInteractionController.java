@@ -83,7 +83,7 @@ public final class ServerFakeInteractionController {
     public void lookAt(BlockPos pos) {
         Rotation rotation = RotationUtils.calcRotationFromVec3d(
                 baritone.getPlayerContext().playerHead(),
-                pos.getCenter(),
+                Vec3.atCenterOf(pos),
                 baritone.getPlayerContext().playerRotations());
         baritone.getLookBehavior().updateTarget(rotation, true);
         // Apply only the visual rotation. No attack/use input is emitted.
@@ -179,13 +179,13 @@ public final class ServerFakeInteractionController {
     private Vec3 findVisibleBreakPoint(BlockPos pos) {
         Vec3 eye = player.getEyePosition();
         Vec3[] samples = {
-                pos.getCenter(),
-                pos.getCenter().add(0.499D, 0D, 0D),
-                pos.getCenter().add(-0.499D, 0D, 0D),
-                pos.getCenter().add(0D, 0.499D, 0D),
-                pos.getCenter().add(0D, -0.499D, 0D),
-                pos.getCenter().add(0D, 0D, 0.499D),
-                pos.getCenter().add(0D, 0D, -0.499D)
+                Vec3.atCenterOf(pos),
+                Vec3.atCenterOf(pos).add(0.499D, 0D, 0D),
+                Vec3.atCenterOf(pos).add(-0.499D, 0D, 0D),
+                Vec3.atCenterOf(pos).add(0D, 0.499D, 0D),
+                Vec3.atCenterOf(pos).add(0D, -0.499D, 0D),
+                Vec3.atCenterOf(pos).add(0D, 0D, 0.499D),
+                Vec3.atCenterOf(pos).add(0D, 0D, -0.499D)
         };
         double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
         for (Vec3 sample : samples) {
@@ -210,7 +210,7 @@ public final class ServerFakeInteractionController {
 
     private BlockPos rayHitPosition(BlockPos pos) {
         HitResult hit = player.level().clip(new ClipContext(
-                player.getEyePosition(), pos.getCenter(),
+                player.getEyePosition(), Vec3.atCenterOf(pos),
                 ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE,
                 player));
         return hit instanceof BlockHitResult blockHit
@@ -853,7 +853,7 @@ public final class ServerFakeInteractionController {
             if (supportState.isAir()
                     || !supportState.getFluidState().isEmpty()) continue;
             Direction clickedFace = fromTarget.getOpposite();
-            Vec3 faceCenter = support.getCenter().add(
+            Vec3 faceCenter = Vec3.atCenterOf(support).add(
                     clickedFace.getUnitVec3().scale(0.5D));
             BlockHitResult hit = new BlockHitResult(
                     faceCenter, clickedFace, support, false);
@@ -896,7 +896,7 @@ public final class ServerFakeInteractionController {
         if (!canReach(pos)) return false;
         lookAt(pos);
         BlockHitResult hit = new BlockHitResult(
-                pos.getCenter(), Direction.UP, pos, false);
+                Vec3.atCenterOf(pos), Direction.UP, pos, false);
         InteractionResult result = player.gameMode.useItemOn(
                 player, (ServerLevel) player.level(),
                 player.getMainHandItem(), InteractionHand.MAIN_HAND,
@@ -916,7 +916,7 @@ public final class ServerFakeInteractionController {
         if (stack.isEmpty()) return false;
         lookAt(pos);
         BlockHitResult hit = new BlockHitResult(
-                pos.getCenter(), Direction.UP, pos, false);
+                Vec3.atCenterOf(pos), Direction.UP, pos, false);
         InteractionResult result = stack.useOn(new UseOnContext(
                 player, InteractionHand.MAIN_HAND, hit));
         player.inventoryMenu.broadcastChanges();
@@ -941,7 +941,7 @@ public final class ServerFakeInteractionController {
                     .is(Blocks.OBSIDIAN)) continue;
             Direction face = fromTarget.getOpposite();
             BlockHitResult hit = new BlockHitResult(
-                    support.getCenter().add(
+                    Vec3.atCenterOf(support).add(
                             face.getUnitVec3().scale(0.5D)),
                     face, support, false);
             lookAt(target);

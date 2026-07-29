@@ -148,7 +148,7 @@ public final class ServerInventoryController {
     public boolean hasAccessibleItem(Predicate<ItemStack> desired) {
         for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
             if (desired.test(stack)) return true;
-            if (isShulker(stack) && contents(stack).nonEmptyStream()
+            if (isShulker(stack) && contents(stack).nonEmptyItemCopyStream()
                     .anyMatch(desired)) return true;
         }
         return false;
@@ -159,7 +159,7 @@ public final class ServerInventoryController {
         for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
             if (desired.test(stack)) result += stack.getCount();
             if (isShulker(stack)) {
-                result += contents(stack).nonEmptyStream()
+                result += contents(stack).nonEmptyItemCopyStream()
                         .filter(desired).mapToInt(ItemStack::getCount).sum();
             }
         }

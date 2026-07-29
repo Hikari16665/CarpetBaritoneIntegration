@@ -101,7 +101,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
             }
             addWidget(new ButtonWidget(x, rowY + 3, 58, 20,
                     Component.literal("选择"), button ->
-                    minecraft.setScreen(new ItemPickerScreen(this,
+                    minecraft.gui.setScreen(new ItemPickerScreen(this,
                             command.kind
                                     == BaritoneControlScreen.Kind.MULTI_BLOCK,
                             value -> {
@@ -150,7 +150,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
         }
         addWidget(new ButtonWidget(left, top + 222, 112, 22,
                 Component.literal("返回"), button ->
-                minecraft.setScreen(parent)));
+                minecraft.gui.setScreen(parent)));
         addWidget(new ButtonWidget(left + 118, top + 222, 242, 22,
                 Component.literal("发送命令"), button -> submit()));
         refreshSelectors();
@@ -197,7 +197,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
         String fake = selected(fakes, fakeIndex, "");
         ClientControlOptions.rememberFake(fake);
         ClientCommandSender.send(fake, command.command, args);
-        minecraft.setScreen(parent);
+        minecraft.gui.setScreen(parent);
     }
 
     private void rebuild() {
@@ -205,7 +205,7 @@ final class MultiItemCommandScreen extends AbstractScreen {
                 parent, command, List.copyOf(entries));
         replacement.playerIndex = playerIndex;
         replacement.firstVisibleRow = firstVisibleRow;
-        minecraft.setScreen(replacement);
+        minecraft.gui.setScreen(replacement);
     }
 
     @Override
@@ -258,6 +258,6 @@ final class MultiItemCommandScreen extends AbstractScreen {
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.gui.setScreen(parent);
     }
 }

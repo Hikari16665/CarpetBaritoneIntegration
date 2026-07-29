@@ -886,7 +886,7 @@ public final class BuilderProcess implements IBuilderProcess {
             BlockPos stance, BlockPos target) {
         Vec3 eye = new Vec3(stance.getX() + 0.5D,
                 stance.getY() + 1.62D, stance.getZ() + 0.5D);
-        Vec3 center = target.getCenter();
+        Vec3 center = Vec3.atCenterOf(target);
         Vec3[] samples = {
                 center,
                 center.add(0.499D, 0D, 0D),
@@ -1741,7 +1741,7 @@ public final class BuilderProcess implements IBuilderProcess {
 
     private boolean withinReach(BlockPos pos) {
         return baritone.getPlayerContext().player().getEyePosition()
-                .distanceToSqr(pos.getCenter())
+                .distanceToSqr(Vec3.atCenterOf(pos))
                 <= RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
                 * RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
     }
@@ -1754,7 +1754,7 @@ public final class BuilderProcess implements IBuilderProcess {
             ItemContainerContents contents = stack.getOrDefault(
                     DataComponents.CONTAINER,
                     ItemContainerContents.EMPTY);
-            contents.nonEmptyStream().forEach(
+        contents.nonEmptyItemCopyStream().forEach(
                     nested -> addPlaceableState(states, nested));
         }
         approxPlaceable = List.copyOf(states);

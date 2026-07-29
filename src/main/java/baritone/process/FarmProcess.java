@@ -192,7 +192,7 @@ public final class FarmProcess implements IFarmProcess {
         }
         if (state.getBlock() instanceof BonemealableBlock growable
                 && growable.isValidBonemealTarget(world, pos, state)
-                && growable.isBonemealSuccess(world, world.random, pos, state)) {
+                && growable.isBonemealSuccess(world, world.getRandom(), pos, state)) {
             return Cultivation.BONE_MEAL;
         }
         return null;
