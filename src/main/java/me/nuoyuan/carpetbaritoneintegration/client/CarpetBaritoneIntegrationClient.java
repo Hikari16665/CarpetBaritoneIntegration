@@ -8,6 +8,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import org.lwjgl.glfw.GLFW;
@@ -19,6 +20,9 @@ public final class CarpetBaritoneIntegrationClient
     @Override
     public void onInitializeClient() {
         PathNetwork.registerCommon();
+        ClientPathRenderer.initialize();
+        ClientLifecycleEvents.CLIENT_STOPPING.register(
+                client -> ClientPathRenderer.close());
         ClientPlayNetworking.registerGlobalReceiver(
                 PathSnapshotPayload.TYPE,
                 (payload, context) -> ClientPathRenderer.accept(payload));
