@@ -356,7 +356,7 @@ public final class Settings {
             new Setting<>(0.05D);
     public final Setting<Double> goalDirectedPillarCostMultiplier =
             new Setting<>(0.20D);
-    public final Setting<Boolean> diagnosticLogging = new Setting<>(true);
+    public final Setting<Boolean> diagnosticLogging = new Setting<>(false);
     public final Setting<List<Block>> blocksToAvoid =
             new Setting<>(new ArrayList<>(List.of(Blocks.TRIPWIRE)));
     public final Setting<List<Block>> blocksToDisallowBreaking =
