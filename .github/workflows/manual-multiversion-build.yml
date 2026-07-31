@@ -1,0 +1,178 @@
+name: Build all multiversion branches
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover multiversion branches
+    runs-on: ubuntu-latest
+    outputs:
+      branches: ${{ steps.branches.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find multiver branches
+        id: branches
+        shell: bash
+        run: |
+          mapfile -t branches < <(
+            git ls-remote --heads origin 'refs/heads/multiver/*' \
+              | awk '{sub("refs/heads/", "", $2); print $2}' \
+              | sort -V
+          )
+
+          if (( ${#branches[@]} == 0 )); then
+            echo "::error::No multiver/* branches were found."
+            exit 1
+          fi
+
+          matrix="$(printf '%s\n' "${branches[@]}" | jq -R . | jq -sc .)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          printf 'Discovered branch: %s\n' "${branches[@]}"
+
+  build:
+    name: Build ${{ matrix.branch }}
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.discover.outputs.branches) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 1
+          lfs: true
+
+      - name: Read versions and select Java
+        id: versions
+        shell: bash
+        run: |
+          minecraft_version="$(
+            sed -n 's/^minecraft_version[[:space:]]*=[[:space:]]*//p' \
+              gradle.properties | head -n 1 | tr -d '\r'
+          )"
+          mod_version="$(
+            sed -n 's/^mod_version[[:space:]]*=[[:space:]]*//p' \
+              gradle.properties | head -n 1 | tr -d '\r'
+          )"
+
+          test -n "$minecraft_version"
+          test -n "$mod_version"
+
+          case "$minecraft_version" in
+            1.21.*) java_version=21 ;;
+            26.*)   java_version=25 ;;
+            *)
+              echo "::error::No Java version rule for Minecraft $minecraft_version"
+              exit 1
+              ;;
+          esac
+
+          safe_branch="${{ matrix.branch }}"
+          safe_branch="${safe_branch//\//-}"
+
+          echo "minecraft=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "mod=$mod_version" >> "$GITHUB_OUTPUT"
+          echo "java=$java_version" >> "$GITHUB_OUTPUT"
+          echo "branch=$safe_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java ${{ steps.versions.outputs.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.versions.outputs.java }}
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Build
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build --stacktrace --no-daemon
+
+      - name: Stage versioned JAR
+        shell: bash
+        env:
+          MINECRAFT_VERSION: ${{ steps.versions.outputs.minecraft }}
+          MOD_VERSION: ${{ steps.versions.outputs.mod }}
+          SOURCE_BRANCH: ${{ steps.versions.outputs.branch }}
+        run: |
+          mapfile -t jars < <(
+            find build/libs -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-sources.jar' \
+              ! -name '*-dev.jar' \
+              ! -name '*-javadoc.jar' \
+              | sort
+          )
+
+          if (( ${#jars[@]} != 1 )); then
+            echo "::error::Expected exactly one distributable JAR, found ${#jars[@]}."
+            printf '%s\n' "${jars[@]}"
+            exit 1
+          fi
+
+          mkdir -p staged
+          output="carpetbaritoneintegration-mc-${MINECRAFT_VERSION}-mod-${MOD_VERSION}.jar"
+          cp "${jars[0]}" "staged/$output"
+          printf '%s\t%s\t%s\t%s\n' \
+            "$MINECRAFT_VERSION" "$MOD_VERSION" "$SOURCE_BRANCH" "$output" \
+            > staged/build-info.tsv
+
+      - name: Upload branch result
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiversion-${{ steps.versions.outputs.branch }}
+          path: staged/
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    name: Package all versions
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all branch results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: multiversion-*
+          path: collected
+          merge-multiple: false
+
+      - name: Assemble combined artifact
+        shell: bash
+        run: |
+          mkdir -p bundle
+          find collected -type f -name '*.jar' -exec cp '{}' bundle/ ';'
+
+          jar_count="$(find bundle -maxdepth 1 -type f -name '*.jar' | wc -l)"
+          if (( jar_count == 0 )); then
+            echo "::error::No built JARs were downloaded."
+            exit 1
+          fi
+
+          {
+            printf 'Minecraft Version\tMod Version\tSource Branch\tJAR\n'
+            find collected -type f -name build-info.tsv -exec cat '{}' ';' | sort -V
+          } > bundle/BUILD-MANIFEST.tsv
+
+          echo "Packaged $jar_count versioned JAR(s)."
+
+      - name: Upload combined ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CarpetBaritoneIntegration-all-multiversion-${{ github.run_number }}
+          path: bundle/
+          if-no-files-found: error
+          compression-level: 9
