@@ -168,10 +168,10 @@ final class SettingEditorScreen extends AbstractScreen {
             entries.addAll(Arrays.asList(encoded.split(",")));
         }
         candidates = registryCandidates(option.type());
+        EmptyComponent scrollHost = new EmptyComponent(
+                x, y + 24, 340, 94);
         ScrollContainerWidget scroll =
                 new ScrollContainerWidget(340, 94, 2);
-        scroll.setX(x);
-        scroll.setY(y + 24);
         listRows.clear();
         listIcons.clear();
         for (int rowIndex = 0; rowIndex < LIST_PAGE_SIZE; rowIndex++) {
@@ -193,7 +193,8 @@ final class SettingEditorScreen extends AbstractScreen {
             listRows.add(button);
             scroll.addComponent(row);
         }
-        addWidget(scroll);
+        scrollHost.addWidget(scroll);
+        addComponent(scrollHost);
         addWidget(new ButtonWidget(x, y, 106, 20,
                 Component.literal("上一页"), button -> {
                     listPage = Math.max(0, listPage - 1);

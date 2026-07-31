@@ -27,10 +27,11 @@ public final class BaritoneControlScreen extends AbstractScreen {
         int top = Math.max(18, height / 2 - 120);
         addComponent(new TextComponent(left, top,
                 Component.literal("选择要执行的命令")));
+        int scrollHeight = Math.min(220, height - top - 35);
+        EmptyComponent scrollHost = new EmptyComponent(
+                left, top + 22, panelWidth, scrollHeight);
         ScrollContainerWidget scroll = new ScrollContainerWidget(
-                panelWidth, Math.min(220, height - top - 35), 4);
-        scroll.setX(left);
-        scroll.setY(top + 22);
+                panelWidth, scrollHeight, 4);
         for (Category category : Category.values()) {
             List<ControlCommand> commands = new ArrayList<>();
             for (ControlCommand command : ControlCommand.values()) {
@@ -49,7 +50,8 @@ public final class BaritoneControlScreen extends AbstractScreen {
                 scroll.addComponent(row);
             }
         }
-        addWidget(scroll);
+        scrollHost.addWidget(scroll);
+        addComponent(scrollHost);
         super.init();
     }
 

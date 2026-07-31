@@ -73,10 +73,10 @@ final class SettingsListScreen extends AbstractScreen {
     protected void addSettingsScroll(String filter) {
         int left = width / 2 - 190;
         int top = Math.max(12, height / 2 - 135);
+        EmptyComponent scrollHost = new EmptyComponent(
+                left, top + 68, 380, 174);
         ScrollContainerWidget scroll =
                 new ScrollContainerWidget(380, 174, 3);
-        scroll.setX(left);
-        scroll.setY(top + 68);
         String normalized = filter.toLowerCase(Locale.ROOT);
         for (SettingOption option : ClientControlOptions.settings()) {
             if (!option.name().toLowerCase(Locale.ROOT)
@@ -92,7 +92,8 @@ final class SettingsListScreen extends AbstractScreen {
                                     fakeName(fakeIndex)))));
             scroll.addComponent(row);
         }
-        addWidget(scroll);
+        scrollHost.addWidget(scroll);
+        addComponent(scrollHost);
     }
 
     private String fakeName(int index) {
