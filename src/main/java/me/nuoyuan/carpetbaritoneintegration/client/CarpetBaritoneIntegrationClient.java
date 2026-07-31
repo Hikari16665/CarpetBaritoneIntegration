@@ -52,7 +52,7 @@ public final class CarpetBaritoneIntegrationClient
                 KeyMapping.Category.MISC));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openControl.consumeClick()) {
-                client.gui.setScreen(new BaritoneControlScreen());
+                client.setScreen(new BaritoneControlScreen());
             }
         });
     }

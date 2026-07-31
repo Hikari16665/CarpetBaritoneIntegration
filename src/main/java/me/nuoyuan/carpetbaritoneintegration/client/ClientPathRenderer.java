@@ -1,35 +1,19 @@
 package me.nuoyuan.carpetbaritoneintegration.client;
 
-import com.mojang.blaze3d.PrimitiveTopology;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderPass;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.blaze3d.vertex.VertexFormat;
 import me.nuoyuan.carpetbaritoneintegration.network.PathSnapshotPayload;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.StagedVertexBuffer;
-import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Matrix4f;
-import org.joml.Vector3f;
-import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.OptionalDouble;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,20 +25,13 @@ public final class ClientPathRenderer {
     private static final long EXPIRY_MILLIS = 3_000L;
     private static final Map<UUID, CachedSnapshot> SNAPSHOTS =
             new ConcurrentHashMap<>();
-    private static final StagedVertexBuffer BUFFER =
-            new StagedVertexBuffer(() -> "CBI path overlay",
-                    RenderType.SMALL_BUFFER_SIZE);
-    private static final Vector4f COLOR_MODULATOR =
-            new Vector4f(1F, 1F, 1F, 1F);
-    private static final Vector3f MODEL_OFFSET = new Vector3f();
-    private static final Matrix4f TEXTURE_MATRIX = new Matrix4f();
     private static volatile ExtractedState extracted = ExtractedState.EMPTY;
 
     private ClientPathRenderer() {
     }
 
     public static void initialize() {
-        LevelExtractionEvents.END_EXTRACTION.register(
+        LevelRenderEvents.END_EXTRACTION.register(
                 ClientPathRenderer::extract);
         LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(
                 ClientPathRenderer::render);
@@ -78,7 +55,7 @@ public final class ClientPathRenderer {
     }
 
     public static void close() {
-        BUFFER.close();
+        clear();
     }
 
     private static void extract(LevelExtractionContext context) {
@@ -105,15 +82,8 @@ public final class ClientPathRenderer {
     private static void render(LevelRenderContext context) {
         ExtractedState state = extracted;
         if (state.snapshots.isEmpty()) return;
-        RenderPipeline pipeline = RenderPipelines.LINES_TRANSLUCENT;
-        VertexFormat format = pipeline.getVertexFormatBinding(0);
-        if (format == null) return;
-        PrimitiveTopology primitive = pipeline.getPrimitiveTopology();
-        StagedVertexBuffer.Draw draw = BUFFER.appendDraw(format, primitive,
-                primitive == PrimitiveTopology.QUADS
-                        ? RenderSystem.getProjectionType().vertexSorting()
-                        : null);
-        VertexConsumer consumer = BUFFER.getVertexBuilder(draw);
+        VertexConsumer consumer = context.bufferSource()
+                .getBuffer(RenderTypes.lines());
         PoseStack matrices = context.poseStack();
         PoseStack.Pose pose = matrices.last();
         Vec3 camera = context.levelState().cameraRenderState.pos;
@@ -122,10 +92,6 @@ public final class ClientPathRenderer {
             drawSnapshot(consumer, pose, camera, snapshot,
                     state.minY, state.maxY);
         }
-        BUFFER.upload();
-        StagedVertexBuffer.ExecuteInfo info = BUFFER.getExecuteInfo(draw);
-        if (info != null) execute(info, pipeline);
-        BUFFER.endFrame();
     }
 
     private static void drawSnapshot(VertexConsumer consumer,
@@ -280,30 +246,6 @@ public final class ClientPathRenderer {
                         (float) (z2 - camera.z))
                 .setColor(red(color), green(color), blue(color), alpha)
                 .setNormal(pose, dx, dy, dz).setLineWidth(2F);
-    }
-
-    private static void execute(StagedVertexBuffer.ExecuteInfo info,
-            RenderPipeline pipeline) {
-        Minecraft client = Minecraft.getInstance();
-        GpuBufferSlice transforms = RenderSystem.getDynamicUniforms()
-                .writeTransform(RenderSystem.getModelViewMatrixCopy(),
-                        COLOR_MODULATOR, MODEL_OFFSET, TEXTURE_MATRIX);
-        RenderTarget target = client.gameRenderer.mainRenderTarget();
-        GpuTextureView color = target.getColorTextureView();
-        if (color == null) return;
-        try (RenderPass pass = RenderSystem.getDevice()
-                .createCommandEncoder().createRenderPass(
-                        () -> "CBI path overlay", color, Optional.empty(),
-                        target.getDepthTextureView(),
-                        OptionalDouble.empty())) {
-            pass.setPipeline(pipeline);
-            RenderSystem.bindDefaultUniforms(pass);
-            pass.setUniform("DynamicTransforms", transforms);
-            pass.setVertexBuffer(0, info.vertexBuffer().slice());
-            pass.setIndexBuffer(info.indexBuffer(), info.indexType());
-            pass.drawIndexed(info.indexCount(), 1, info.firstIndex(),
-                    info.baseVertex(), 0);
-        }
     }
 
     private static int red(int color) {

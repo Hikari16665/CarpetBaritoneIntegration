@@ -98,7 +98,7 @@ final class CommandParameterScreen extends AbstractScreen {
 
         addWidget(new ButtonWidget(left, top + 178, 96, 24,
                 Component.literal("返回命令菜单"),
-                button -> minecraft.gui.setScreen(parent)));
+                button -> minecraft.setScreen(parent)));
         submit = new ButtonWidget(left + 104, top + 178, 196, 24,
                 Component.literal("发送命令"), button -> submit());
         addWidget(submit);
@@ -156,7 +156,7 @@ final class CommandParameterScreen extends AbstractScreen {
                 Component.literal("主手"), button -> useMainHand()));
         addWidget(new ButtonWidget(left + 253, row, 47, 20,
                 Component.literal("选择"), button ->
-                minecraft.gui.setScreen(new ItemPickerScreen(this,
+                minecraft.setScreen(new ItemPickerScreen(this,
                         command == BaritoneControlScreen.ControlCommand.GET
                                 || command
                                 == BaritoneControlScreen.ControlCommand.FIND,
@@ -330,6 +330,6 @@ final class CommandParameterScreen extends AbstractScreen {
     }
 
     @Override public void onClose() {
-        minecraft.gui.setScreen(parent);
+        minecraft.setScreen(parent);
     }
 }

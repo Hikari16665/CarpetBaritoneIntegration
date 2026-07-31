@@ -73,7 +73,7 @@ final class ItemPickerScreen extends AbstractScreen {
                     left + 2, rowY + 2, new ItemStack(item), true));
             addWidget(new ButtonWidget(left, rowY, 340, 20,
                     Component.literal(display(id)), button -> {
-                minecraft.gui.setScreen(parent);
+                minecraft.setScreen(parent);
                 selected.accept(normalized(id));
             }));
         }
@@ -106,7 +106,7 @@ final class ItemPickerScreen extends AbstractScreen {
         replacement.query = query;
         replacement.page = page;
         replacement.firstVisibleRow = firstVisibleRow;
-        minecraft.gui.setScreen(replacement);
+        minecraft.setScreen(replacement);
     }
 
     @Override
@@ -155,6 +155,6 @@ final class ItemPickerScreen extends AbstractScreen {
 
     @Override
     public void onClose() {
-        minecraft.gui.setScreen(parent);
+        minecraft.setScreen(parent);
     }
 }

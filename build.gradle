@@ -51,9 +51,7 @@ dependencies {
 
     //carpet mod!
     implementation "carpet:fabric-carpet:${project.carpet_core_version}"
-    implementation files("libs/uilib-fabric-21.1.1.jar")
-    compileOnly files("libs/litematica-fabric-26.2-0.28.4.jar")
-    compileOnly files("libs/litematica-printer-26.2-3.2.2.jar")
+    implementation files("libs/uilib-fabric-20.1.4.jar")
 
     implementation "dev.babbaj:nether-pathfinder:1.6"
     compileOnly "com.google.code.findbugs:jsr305:3.0.2"

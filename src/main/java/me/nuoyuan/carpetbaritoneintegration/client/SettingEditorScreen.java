@@ -88,7 +88,7 @@ final class SettingEditorScreen extends AbstractScreen {
                 Component.literal("恢复默认"), button -> reset()));
         addWidget(new ButtonWidget(left + 88, top + 174, 82, 22,
                 Component.literal("返回"), button ->
-                minecraft.gui.setScreen(parent)));
+                minecraft.setScreen(parent)));
         addWidget(new ButtonWidget(left + 176, top + 174, 164, 22,
                 Component.literal("应用设置"), button -> apply()));
         super.init();
@@ -396,7 +396,7 @@ final class SettingEditorScreen extends AbstractScreen {
             default -> encoded;
         };
         send("settings " + option.name() + " " + encoded);
-        minecraft.gui.setScreen(parent);
+        minecraft.setScreen(parent);
     }
 
     private String encodeMap() {
@@ -409,7 +409,7 @@ final class SettingEditorScreen extends AbstractScreen {
 
     private void reset() {
         send("settings reset " + option.name());
-        minecraft.gui.setScreen(parent);
+        minecraft.setScreen(parent);
     }
 
     private void send(String arguments) {
@@ -421,5 +421,5 @@ final class SettingEditorScreen extends AbstractScreen {
         return index < parts.length ? parts[index] : "0";
     }
 
-    @Override public void onClose() { minecraft.gui.setScreen(parent); }
+    @Override public void onClose() { minecraft.setScreen(parent); }
 }
