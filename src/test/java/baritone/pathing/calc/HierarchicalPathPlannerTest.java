@@ -2,7 +2,6 @@ package baritone.pathing.calc;
 
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.Goal;
-import baritone.api.pathing.goals.GoalXZ;
 import baritone.api.utils.BetterBlockPos;
 import baritone.process.BuilderProcess;
 import org.junit.Test;
@@ -24,9 +23,8 @@ public class HierarchicalPathPlannerTest {
         assertTrue(plan.corridor().contains(0, 0));
         assertFalse(plan.corridor().contains(-4096, 4096));
         assertFalse(plan.refinementGoal().isInGoal(4096, 70, 2048));
-        GoalXZ gateway = (GoalXZ) plan.refinementGoal();
-        assertTrue(Math.abs((gateway.getX() >> 4)) <= 1);
-        assertTrue(Math.abs((gateway.getZ() >> 4)) <= 1);
+        assertTrue(plan.refinementGoal()
+                instanceof HierarchicalPathPlanner.ChunkGoal);
     }
 
     @Test
@@ -108,7 +106,7 @@ public class HierarchicalPathPlannerTest {
     }
 
     @Test
-    public void refinementGatewayIsOnSharedChunkBoundaryNotChunkCenter() {
+    public void refinementGatewayAcceptsAnyEntryInTheNextChunk() {
         HierarchicalPathPlanner.Plan plan =
                 new HierarchicalPathPlanner().plan(
                         new BetterBlockPos(8, 64, 8),
@@ -116,10 +114,37 @@ public class HierarchicalPathPlannerTest {
 
         assertNotNull(plan);
         assertFalse(plan.finalSegment());
-        assertTrue(plan.refinementGoal() instanceof GoalXZ);
-        GoalXZ gateway = (GoalXZ) plan.refinementGoal();
-        assertEquals("Eastbound refinement should stop at the entrance "
-                + "of the adjacent chunk", 16, gateway.getX());
-        assertTrue(gateway.getZ() >= 0 && gateway.getZ() < 16);
+        assertTrue(plan.refinementGoal()
+                instanceof HierarchicalPathPlanner.ChunkGoal);
+        HierarchicalPathPlanner.ChunkGoal gateway =
+                (HierarchicalPathPlanner.ChunkGoal) plan.refinementGoal();
+        assertEquals(1, gateway.chunkX());
+        assertEquals(0, gateway.chunkZ());
+        assertTrue(gateway.isInGoal(16, -64, 0));
+        assertTrue(gateway.isInGoal(31, 320, 15));
+        assertFalse(gateway.isInGoal(15, 64, 15));
+        assertFalse(gateway.isInGoal(32, 64, 0));
     }
+
+    @Test
+    public void diagonalGatewayAndItsSnapshotChunkAreIncluded() {
+        HierarchicalPathPlanner.Plan plan =
+                new HierarchicalPathPlanner().plan(
+                        new BetterBlockPos(15, 64, 15),
+                        new GoalBlock(64, 64, 64), 1);
+
+        assertNotNull(plan);
+        assertFalse(plan.finalSegment());
+        HierarchicalPathPlanner.ChunkGoal gateway =
+                (HierarchicalPathPlanner.ChunkGoal) plan.refinementGoal();
+        assertEquals(1, gateway.chunkX());
+        assertEquals(1, gateway.chunkZ());
+        assertTrue(gateway.isInGoal(16, 64, 16));
+        long key = ((long) gateway.chunkX() << 32)
+                ^ (gateway.chunkZ() & 0xffffffffL);
+        assertTrue("The immutable worker view must contain the diagonal "
+                        + "gateway selected by HPA",
+                plan.corridorChunks().contains(key));
+    }
+
 }
