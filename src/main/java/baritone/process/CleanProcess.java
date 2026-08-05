@@ -64,6 +64,20 @@ public final class CleanProcess implements ICleanProcess {
         return max == null ? null : max.immutable();
     }
 
+    /**
+     * Fluid isolation deliberately extends by exactly one block on every
+     * axis. These bounds are not exposed as the clean selection: movement may
+     * interact with fluid plugs here, but block breaking remains restricted
+     * to {@link #selectionMin()}..{@link #selectionMax()}.
+     */
+    BlockPos fluidSealMin() {
+        return min == null ? null : min.offset(-1, -1, -1);
+    }
+
+    BlockPos fluidSealMax() {
+        return max == null ? null : max.offset(1, 1, 1);
+    }
+
     @Override
     public void clean(ISelection selection, Consumer<String> feedback) {
         onLostControl();
@@ -72,6 +86,9 @@ public final class CleanProcess implements ICleanProcess {
         y = max.getY();
         sealingFluids = true;
         this.feedback = feedback == null ? ignored -> { } : feedback;
+        diagnostic("fluid seal bounds=" + fluidSealMin()
+                + ".." + fluidSealMax() + " selection=" + min
+                + ".." + max);
     }
 
     public void serverTick() {
@@ -188,9 +205,14 @@ public final class CleanProcess implements ICleanProcess {
 
     private void findHighestTarget() {
         if (sealingFluids) {
-            for (int checkY = max.getY(); checkY >= min.getY(); checkY--) {
-                for (int z = min.getZ(); z <= max.getZ(); z++) {
-                    for (int x = min.getX(); x <= max.getX(); x++) {
+            BlockPos sealMin = fluidSealMin();
+            BlockPos sealMax = fluidSealMax();
+            for (int checkY = sealMax.getY();
+                    checkY >= sealMin.getY(); checkY--) {
+                for (int z = sealMin.getZ();
+                        z <= sealMax.getZ(); z++) {
+                    for (int x = sealMin.getX();
+                            x <= sealMax.getX(); x++) {
                         BlockPos pos = new BlockPos(x, checkY, z);
                         if (!baritone.getPlayerContext().world()
                                 .getBlockState(pos).getFluidState()
