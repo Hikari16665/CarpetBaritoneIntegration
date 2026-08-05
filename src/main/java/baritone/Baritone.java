@@ -27,6 +27,7 @@ import baritone.behavior.PathingBehavior;
 import baritone.pathing.calc.AStarPathFinder;
 import baritone.pathing.calc.AbstractNodeCostSearch;
 import baritone.pathing.calc.HybridPathFinder;
+import baritone.pathing.calc.HierarchicalPathPlanner;
 import baritone.api.pathing.calc.IPathFinder;
 import baritone.pathing.movement.CalculationContext;
 import baritone.process.FollowProcess;
@@ -780,23 +781,37 @@ public final class Baritone implements IBaritone {
                             startChunkX, startChunkZ);
             if (chunk != null) getWorldCache().captureExact(chunk);
         }
-        getWorldCache().warmExactSnapshots(
+        HierarchicalPathPlanner.Plan hierarchy =
+                new HierarchicalPathPlanner().plan(start, goal, 1);
+        int radialBudget = Math.max(hierarchy == null ? 8 : 0,
+                settings().pathingSnapshotWarmupChunkBudget.value);
+        int radialCopied = getWorldCache().warmExactSnapshots(
                 start,
                 Math.min(2, playerContext.server()
                         .getPlayerList().getViewDistance()),
-                Math.max(0, settings()
-                        .pathingSnapshotWarmupChunkBudget.value));
-        CalculationContext context = desiredContext != null
-                ? desiredContext
-                : builderProcess.isPathingGoal(goal)
+                radialBudget);
+        int corridorCopied = hierarchy == null ? 0
+                : getWorldCache().warmExactSnapshots(
+                        start, hierarchy.corridorChunks());
+        CalculationContext context = builderProcess.isPathingGoal(goal)
                 ? builderProcess.calculationContext(goal)
+                : desiredContext != null
+                ? desiredContext
                 : new CalculationContext(this, true, goal);
         Map<Long, Long> snapshotRevisions =
                 getWorldCache().exactSnapshotRevisions();
         HybridPathFinder finder = new HybridPathFinder(
                 start, goal,
                 new Favoring(playerContext, previous, context),
-                context);
+                context, hierarchy);
+        if (settings().diagnosticLogging.value) {
+            System.out.println("[CBI-DIAG] path-snapshots player="
+                    + playerContext.player().getScoreboardName()
+                    + " radialCopied=" + radialCopied
+                    + " corridorRequired=" + (hierarchy == null ? 0
+                    : hierarchy.corridorChunks().size())
+                    + " corridorCopied=" + corridorCopied);
+        }
         long generation = ++calculationGeneration;
         inProgressPathfinder = finder;
         inProgressNextSegment = nextSegment;

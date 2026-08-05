@@ -36,6 +36,7 @@ public final class HierarchicalPathPlanner {
             Goal refinementGoal, PathCorridor corridor,
             List<GridPos> regions, List<GridPos> clusters,
             List<GridPos> chunks,
+            Set<Long> corridorChunks,
             boolean finalSegment) { }
     public record GridPos(int x, int z) { }
 
@@ -50,7 +51,8 @@ public final class HierarchicalPathPlanner {
                 Math.abs(targetChunkZ - startChunkZ));
         if (chunkDistance == 0) {
             return new Plan(goal, PathCorridor.UNBOUNDED,
-                    List.of(), List.of(), List.of(), true);
+                    List.of(), List.of(), List.of(),
+                    Set.of(key(startChunkX, startChunkZ)), true);
         }
 
         Cell regionStart = new Cell(
@@ -132,7 +134,7 @@ public final class HierarchicalPathPlanner {
         PathCorridor corridor = (x, z) ->
                 allowedChunks.contains(key(x >> 4, z >> 4));
         Goal refinementGoal = finalSegment
-                ? goal : gatewayGoal(start, chunkPath.getFirst(), gateway);
+                ? goal : new ChunkGoal(gateway.x, gateway.z);
         return new Plan(refinementGoal, corridor,
                 regionPath.stream().map(cell ->
                         new GridPos(cell.x, cell.z)).toList(),
@@ -140,26 +142,47 @@ public final class HierarchicalPathPlanner {
                         new GridPos(cell.x, cell.z)).toList(),
                 chunkPath.stream().map(cell ->
                         new GridPos(cell.x, cell.z)).toList(),
+                Set.copyOf(allowedChunks),
                 finalSegment);
     }
 
     /**
-     * Refine toward the nearest point just inside the next chunk instead of
-     * its centre. A chunk centre is not an entrance: forcing every segment
-     * through it makes an otherwise open shared border look unreachable when
-     * the centre happens to be inside a wall, fluid column, or deep hole.
+     * A non-final refinement ends anywhere in the next abstract chunk. A
+     * single border column is not a gateway: if that column is blocked, the
+     * old GoalXZ made an otherwise reachable adjacent chunk impossible.
      */
-    private static Goal gatewayGoal(
-            BetterBlockPos start, Cell current, Cell gateway) {
-        int minX = gateway.x << 4;
-        int minZ = gateway.z << 4;
-        int x = clamp(start.x, minX, minX + 15);
-        int z = clamp(start.z, minZ, minZ + 15);
-        if (gateway.x > current.x) x = minX;
-        if (gateway.x < current.x) x = minX + 15;
-        if (gateway.z > current.z) z = minZ;
-        if (gateway.z < current.z) z = minZ + 15;
-        return new GoalXZ(x, z);
+    static final class ChunkGoal implements Goal {
+        private final int chunkX;
+        private final int chunkZ;
+
+        ChunkGoal(int chunkX, int chunkZ) {
+            this.chunkX = chunkX;
+            this.chunkZ = chunkZ;
+        }
+
+        @Override
+        public boolean isInGoal(int x, int y, int z) {
+            return x >> 4 == chunkX && z >> 4 == chunkZ;
+        }
+
+        @Override
+        public double heuristic(int x, int y, int z) {
+            int minX = chunkX << 4;
+            int minZ = chunkZ << 4;
+            int dx = x < minX ? minX - x
+                    : x > minX + 15 ? x - (minX + 15) : 0;
+            int dz = z < minZ ? minZ - z
+                    : z > minZ + 15 ? z - (minZ + 15) : 0;
+            return GoalXZ.calculate(dx, dz);
+        }
+
+        int chunkX() { return chunkX; }
+        int chunkZ() { return chunkZ; }
+
+        @Override
+        public String toString() {
+            return "ChunkGoal{x=" + chunkX + ",z=" + chunkZ + '}';
+        }
     }
 
     private static BlockPos target(Goal goal, BetterBlockPos start) {

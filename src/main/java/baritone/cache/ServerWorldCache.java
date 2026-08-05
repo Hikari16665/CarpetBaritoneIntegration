@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -196,9 +197,9 @@ public final class ServerWorldCache implements ICachedWorld {
         outer:
         for (int distance = 0; distance <= radius; distance++) {
             for (int dx = -distance; dx <= distance; dx++) {
-                int dzAbs = distance - Math.abs(dx);
-                for (int sign : new int[]{-1, 1}) {
-                    int dz = dzAbs * sign;
+                for (int dz = -distance; dz <= distance; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz))
+                            != distance) continue;
                     int chunkX = centerChunkX + dx;
                     int chunkZ = centerChunkZ + dz;
                     long key = ChunkPos.pack(chunkX, chunkZ);
@@ -211,8 +212,37 @@ public final class ServerWorldCache implements ICachedWorld {
                         }
                     }
                     if (copied >= budget) break outer;
-                    if (dzAbs == 0) break;
                 }
+            }
+        }
+        return copied;
+    }
+
+    /**
+     * Publishes every currently-loaded chunk required by an HPA block-level
+     * corridor. The set is small (at most the two active chunks plus their
+     * dilation) and no chunk is force-loaded. Omitting even one diagonal
+     * gateway makes the immutable worker view reject that chunk boundary.
+     */
+    public synchronized int warmExactSnapshots(
+            BlockPos center, Collection<Long> requiredChunks) {
+        int centerChunkX = center.getX() >> 4;
+        int centerChunkZ = center.getZ() >> 4;
+        List<Long> ordered = new ArrayList<>(
+                new HashSet<>(requiredChunks));
+        ordered.sort(java.util.Comparator.comparingLong(key -> {
+            long dx = ChunkPos.getX(key) - centerChunkX;
+            long dz = ChunkPos.getZ(key) - centerChunkZ;
+            return dx * dx + dz * dz;
+        }));
+        int copied = 0;
+        for (long key : ordered) {
+            if (exactSnapshots.containsKey(key)) continue;
+            LevelChunk chunk = world.getChunkSource().getChunkNow(
+                    ChunkPos.getX(key), ChunkPos.getZ(key));
+            if (chunk != null && !chunk.isEmpty()) {
+                captureExact(chunk);
+                copied++;
             }
         }
         return copied;
