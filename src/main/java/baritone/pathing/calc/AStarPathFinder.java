@@ -51,7 +51,16 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
     public AStarPathFinder(BetterBlockPos realStart, int startX, int startY,
                            int startZ, Goal goal, Favoring favoring,
                            CalculationContext context, PathCorridor corridor) {
-        super(realStart, startX, startY, startZ, goal, context);
+        this(realStart, startX, startY, startZ, goal, goal,
+                favoring, context, corridor);
+    }
+
+    public AStarPathFinder(BetterBlockPos realStart, int startX, int startY,
+                           int startZ, Goal searchGoal, Goal pathGoal,
+                           Favoring favoring, CalculationContext context,
+                           PathCorridor corridor) {
+        super(realStart, startX, startY, startZ,
+                searchGoal, pathGoal, context);
         this.favoring = favoring;
         this.calcContext = context;
         this.corridor = corridor == null
@@ -107,7 +116,8 @@ public final class AStarPathFinder extends AbstractNodeCostSearch {
             numNodes++;
             if (goal.isInGoal(currentNode.x, currentNode.y, currentNode.z)) {
                 logDebug("Took " + (System.currentTimeMillis() - startTime) + "ms, " + numMovementsConsidered + " movements considered");
-                return Optional.of(new Path(realStart, startNode, currentNode, numNodes, goal, calcContext));
+                return Optional.of(new Path(realStart, startNode,
+                        currentNode, numNodes, pathGoal, calcContext));
             }
             for (Moves moves : allMoves) {
                 int newX = currentNode.x + moves.xOffset;

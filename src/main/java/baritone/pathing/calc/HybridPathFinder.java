@@ -20,6 +20,7 @@ public final class HybridPathFinder implements IPathFinder {
     private final Goal goal;
     private final Favoring favoring;
     private final CalculationContext context;
+    private final HierarchicalPathPlanner.Plan preparedPlan;
     private volatile AStarPathFinder current;
     private volatile boolean cancelled;
     private volatile boolean finished;
@@ -27,19 +28,28 @@ public final class HybridPathFinder implements IPathFinder {
     public HybridPathFinder(
             BetterBlockPos start, Goal goal,
             Favoring favoring, CalculationContext context) {
+        this(start, goal, favoring, context, null);
+    }
+
+    public HybridPathFinder(
+            BetterBlockPos start, Goal goal,
+            Favoring favoring, CalculationContext context,
+            HierarchicalPathPlanner.Plan preparedPlan) {
         this.start = start;
         this.goal = goal;
         this.favoring = favoring;
         this.context = context;
+        this.preparedPlan = preparedPlan;
     }
 
     @Override
     public PathCalculationResult calculate(
             long primaryTimeout, long failureTimeout) {
         try {
-            HierarchicalPathPlanner planner = new HierarchicalPathPlanner();
             HierarchicalPathPlanner.Plan plan =
-                    planner.plan(start, goal, 1);
+                    preparedPlan != null ? preparedPlan
+                            : new HierarchicalPathPlanner()
+                            .plan(start, goal, 1);
             if (plan != null && !cancelled) {
                 if (Baritone.settings().diagnosticLogging.value) {
                     System.out.println("[CBI-DIAG] hpa-plan start=" + start
@@ -50,8 +60,8 @@ public final class HybridPathFinder implements IPathFinder {
                             + " final=" + plan.finalSegment());
                 }
                 current = new AStarPathFinder(start, start.x, start.y,
-                        start.z, plan.refinementGoal(), favoring, context,
-                        plan.corridor());
+                        start.z, plan.refinementGoal(), goal,
+                        favoring, context, plan.corridor());
                 long started = System.currentTimeMillis();
                 long corridorPrimary = Math.min(primaryTimeout, 1_500L);
                 long corridorFailure = Math.min(failureTimeout, 3_000L);
