@@ -119,38 +119,41 @@ public final class ServerFakeInteractionController {
             if (pos.equals(activeBreakTarget)) resetBreakProgress();
             return true;
         }
-        if (gameTime < nextBreakAllowedTick) return false;
+        baritone.getInventoryController().ensureBestToolOnHotbar(state);
+        MovementHelper.switchToBestToolFor(
+                baritone.getPlayerContext(), state);
+        double increment = state.getDestroyProgress(
+                player, player.level(), pos);
+        float hardness = state.getDestroySpeed(player.level(), pos);
+        boolean instantBreak = player.getAbilities().instabuild
+                || BlockBreakTiming.isInstant(increment, hardness);
+
+        // The configured inter-action delay models ordinary mining input.
+        // Vanilla instamine blocks are different: after choosing the current
+        // tool, every newly touched eligible block may be destroyed at once.
+        // In particular, an earlier ordinary break cooldown must not suppress
+        // an instamine hit.
+        if (!instantBreak && gameTime < nextBreakAllowedTick) return false;
         boolean startedBreaking = !pos.equals(activeBreakTarget);
         if (startedBreaking) {
             resetBreakProgress();
             activeBreakTarget = pos.immutable();
         }
-        baritone.getInventoryController().ensureBestToolOnHotbar(state);
-        MovementHelper.switchToBestToolFor(
-                baritone.getPlayerContext(), state);
         lookAt(pos);
         if (startedBreaking || gameTime % 6L == 0L) {
             player.swing(InteractionHand.MAIN_HAND, true);
         }
-        if (player.getAbilities().instabuild) {
-            return finishBreak(pos, gameTime);
+        if (instantBreak) {
+            player.level().destroyBlockProgress(player.getId(), pos, 9);
+            diagnosticBreak(pos, "instant increment="
+                    + String.format(java.util.Locale.ROOT, "%.5f", increment)
+                    + " hardness=" + hardness
+                    + " held=" + player.getMainHandItem());
+            return finishBreak(pos, gameTime, true);
         }
         if (lastBreakProgressTick == gameTime) return false;
         lastBreakProgressTick = gameTime;
-        double increment = state.getDestroyProgress(
-                player, player.level(), pos);
         if (!(increment > 0D) || !Double.isFinite(increment)) {
-            float hardness = state.getDestroySpeed(player.level(), pos);
-            if (hardness == 0.0F) {
-                // Plants and other zero-hardness blocks are valid
-                // instantaneous breaks. getDestroyProgress returns zero for
-                // them, which must not be confused with an unbreakable block.
-                player.level().destroyBlockProgress(
-                        player.getId(), pos, 9);
-                diagnosticBreak(pos, "instant zero-hardness state="
-                        + state + " held=" + player.getMainHandItem());
-                return finishBreak(pos, gameTime);
-            }
             diagnosticBreak(pos, "zero-progress state=" + state
                     + " hardness=" + hardness
                     + " held=" + player.getMainHandItem());
@@ -167,7 +170,7 @@ public final class ServerFakeInteractionController {
                 Math.min(9, Math.max(0,
                         (int) (breakProgress * 10.0D))));
         if (breakProgress < 1.0D) return false;
-        return finishBreak(pos, gameTime);
+        return finishBreak(pos, gameTime, false);
     }
 
     /** Fake interaction removes crosshair alignment, not solid occlusion. */
@@ -234,7 +237,8 @@ public final class ServerFakeInteractionController {
         }
     }
 
-    private boolean finishBreak(BlockPos pos, long gameTime) {
+    private boolean finishBreak(
+            BlockPos pos, long gameTime, boolean instantBreak) {
         boolean destroyed = player.gameMode.destroyBlock(pos);
         if (destroyed && player.level() instanceof ServerLevel level
                 && Baritone.settings().repackOnAnyBlockChange.value) {
@@ -243,9 +247,10 @@ public final class ServerFakeInteractionController {
         }
         resetBreakProgress();
         if (destroyed) {
-            nextBreakAllowedTick = gameTime
-                    + Math.max(1, Baritone.settings()
-                            .blockBreakSpeed.value);
+            nextBreakAllowedTick = BlockBreakTiming.afterSuccessfulBreak(
+                    nextBreakAllowedTick, gameTime,
+                    Baritone.settings().blockBreakSpeed.value,
+                    instantBreak);
         }
         return destroyed;
     }
