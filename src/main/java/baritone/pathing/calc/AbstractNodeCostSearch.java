@@ -42,6 +42,10 @@ public abstract class AbstractNodeCostSearch implements IPathFinder, Helper {
     protected final int startZ;
 
     protected final Goal goal;
+    /** Goal exposed by produced paths. HPA searches toward a temporary
+     * refinement goal, but execution must retain the process' original goal
+     * or PathingControlManager invalidates every segment on the next tick. */
+    protected final Goal pathGoal;
 
     private final CalculationContext context;
 
@@ -88,11 +92,18 @@ public abstract class AbstractNodeCostSearch implements IPathFinder, Helper {
     protected static final double MIN_IMPROVEMENT = 0.01;
 
     AbstractNodeCostSearch(BetterBlockPos realStart, int startX, int startY, int startZ, Goal goal, CalculationContext context) {
+        this(realStart, startX, startY, startZ, goal, goal, context);
+    }
+
+    AbstractNodeCostSearch(BetterBlockPos realStart, int startX, int startY,
+                           int startZ, Goal goal, Goal pathGoal,
+                           CalculationContext context) {
         this.realStart = realStart;
         this.startX = startX;
         this.startY = startY;
         this.startZ = startZ;
         this.goal = goal;
+        this.pathGoal = pathGoal;
         this.context = context;
         this.map = new Long2ObjectOpenHashMap<>(Baritone.settings().pathingMapDefaultSize.value, Baritone.settings().pathingMapLoadFactor.value);
     }
@@ -184,7 +195,9 @@ public abstract class AbstractNodeCostSearch implements IPathFinder, Helper {
 
     @Override
     public Optional<IPath> pathToMostRecentNodeConsidered() {
-        return Optional.ofNullable(mostRecentConsidered).map(node -> new Path(realStart, startNode, node, 0, goal, context));
+        return Optional.ofNullable(mostRecentConsidered).map(node ->
+                new Path(realStart, startNode, node, 0,
+                        pathGoal, context));
     }
 
     @Override
@@ -215,7 +228,8 @@ public abstract class AbstractNodeCostSearch implements IPathFinder, Helper {
                             "Path goes for " + Math.sqrt(dist) + " blocks");
                     logDebug("A* cost coefficient " + COEFFICIENTS[i]);
                 }
-                return Optional.of(new Path(realStart, startNode, bestSoFar[i], numNodes, goal, context));
+                return Optional.of(new Path(realStart, startNode,
+                        bestSoFar[i], numNodes, pathGoal, context));
             }
         }
         // instead of returning bestSoFar[0], be less misleading
