@@ -688,8 +688,13 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     }
 
     public boolean isDesiredMiningDrop(ItemStack stack) {
-        return isActive() && !stack.isEmpty()
-                && (desiredDropItems.contains(stack.getItem()) || filter.has(stack));
+        // Path calculation can query throwaway eligibility off-thread while
+        // the server thread stops or replaces this process. Capture the
+        // lookup once so onLostControl cannot turn the second read into null.
+        BlockOptionalMetaLookup currentFilter = filter;
+        return currentFilter != null && !stack.isEmpty()
+                && (desiredDropItems.contains(stack.getItem())
+                || currentFilter.has(stack));
     }
 
     public boolean isProtectedDesiredDrop(ItemEntity entity) {
