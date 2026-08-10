@@ -61,7 +61,7 @@ public final class ServerInventoryController {
             // Prefer configured cheap blocks, then fall back to any safe,
             // ordinary full cube. Path calculation and execution must share
             // this exact predicate or a planned pillar can never execute.
-            if (!selectItem(stack -> isAcceptable(stack.getItem()))
+            if (!selectItem(this::isConfiguredThrowaway)
                     && !selectItem(this::isGenericThrowaway)) {
                 return false;
             }
@@ -344,7 +344,7 @@ public final class ServerInventoryController {
         NonNullList<ItemStack> inventory = player.getInventory().getNonEquipmentItems();
         for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack stack = inventory.get(slot);
-            if (!stack.isEmpty() && isAcceptable(stack.getItem())) {
+            if (isConfiguredThrowaway(stack)) {
                 return slot;
             }
         }
@@ -398,8 +398,27 @@ public final class ServerInventoryController {
         return Baritone.settings().acceptableThrowawayItems.value.contains(item);
     }
 
+    private boolean isConfiguredThrowaway(ItemStack stack) {
+        return !stack.isEmpty()
+                && !isProtectedMiningItem(stack)
+                && isAcceptable(stack.getItem());
+    }
+
+    /**
+     * Never turn the current mining objective (or one of its valid drops)
+     * back into pathing support. Ancient debris is a full collision cube, so
+     * without this guard the generic fallback can repeatedly place the debris
+     * that MineProcess has just collected and then mine it again.
+     */
+    private boolean isProtectedMiningItem(ItemStack stack) {
+        if (baritone == null || stack.isEmpty()) return false;
+        if (baritone.getMineProcess().isDesiredMiningDrop(stack)) return true;
+        BlockInteractionTask task = baritone.getBlockTask();
+        return task != null && task.isDesiredMiningDrop(stack);
+    }
+
     private boolean isGenericThrowaway(ItemStack stack) {
-        if (stack.isEmpty()) return false;
+        if (stack.isEmpty() || isProtectedMiningItem(stack)) return false;
         if (isAcceptable(stack.getItem())) return true;
         if (!(stack.getItem() instanceof BlockItem blockItem)
                 || blockItem.getBlock() instanceof ShulkerBoxBlock
