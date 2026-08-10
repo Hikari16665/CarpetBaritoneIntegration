@@ -412,7 +412,10 @@ public final class ServerInventoryController {
      */
     private boolean isProtectedMiningItem(ItemStack stack) {
         if (baritone == null || stack.isEmpty()) return false;
-        if (baritone.getMineProcess().isDesiredMiningDrop(stack)) return true;
+        // bind(this) happens before Baritone has constructed all processes.
+        // Inventory probing during that window must remain valid.
+        var mine = baritone.getMineProcess();
+        if (mine != null && mine.isDesiredMiningDrop(stack)) return true;
         BlockInteractionTask task = baritone.getBlockTask();
         return task != null && task.isDesiredMiningDrop(stack);
     }
