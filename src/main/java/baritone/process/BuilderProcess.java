@@ -1963,6 +1963,10 @@ public final class BuilderProcess implements IBuilderProcess {
                 ? materialRecovery.goal()
                 : publishedApproachGoal();
         if (goal == null) {
+            // The first target is selected by serverTick(), which only runs
+            // for the process that owns this scheduler tick. DEFER would make
+            // the active Builder surrender control before it can scan the
+            // schematic, leaving fill/file builds permanently targetless.
             return new PathingCommand(
                     null,
                     PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
