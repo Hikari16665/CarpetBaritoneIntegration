@@ -102,6 +102,7 @@ public final class BuilderProcess implements IBuilderProcess {
     private BlockPos publishedGoalTarget;
     private Goal publishedApproachGoal;
     private boolean publishedTargetChunkLoaded;
+    private boolean observedPathExecutor;
     private List<BlockState> approxPlaceable = Collections.emptyList();
     private int layer;
     private int scanCursor;
@@ -177,6 +178,7 @@ public final class BuilderProcess implements IBuilderProcess {
         this.publishedGoalTarget = null;
         this.publishedApproachGoal = null;
         this.publishedTargetChunkLoaded = false;
+        this.observedPathExecutor = false;
         this.layer = Math.max(0, Baritone.settings().startAtLayer.value);
         this.scanCursor = 0;
         this.tickCount = 0;
@@ -198,6 +200,24 @@ public final class BuilderProcess implements IBuilderProcess {
         failedUntil.entrySet().removeIf(
                 entry -> entry.getValue() <= tickCount);
         if (!isActive()) return;
+        boolean hasPathExecutor = baritone.getPathExecutor() != null;
+        if (observedPathExecutor && !hasPathExecutor
+                && !materialRecovery.isActive()) {
+            // The route may have broken or placed blocks and the player's
+            // exact sub-block stopping position is not known before movement.
+            // Never reuse the pre-route visibility/stance snapshot after
+            // arrival: a stale goal can contain current feet while the actual
+            // interaction ray is now blocked, preventing any new path.
+            publishedApproachGoal = null;
+            if (Baritone.settings().diagnosticLogging.value
+                    && target != null) {
+                System.out.println("[CBI-DIAG] builder-goal-refresh player="
+                        + baritone.getPlayerContext().player()
+                                .getScoreboardName()
+                        + " target=" + target + " reason=path-finished");
+            }
+        }
+        observedPathExecutor = hasPathExecutor;
         if (materialRecovery.isActive()) {
             BuilderMaterialRecovery.Result recovery =
                     materialRecovery.tick();
@@ -878,12 +898,23 @@ public final class BuilderProcess implements IBuilderProcess {
                     double eyeX = stance.getX() + 0.5D;
                     double eyeY = stance.getY() + 1.62D;
                     double eyeZ = stance.getZ() + 0.5D;
-                    double tx = target.getX() + 0.5D - eyeX;
-                    double ty = target.getY() + 0.5D - eyeY;
-                    double tz = target.getZ() + 0.5D - eyeZ;
-                    if (tx * tx + ty * ty + tz * tz
-                            > reach * reach) continue;
-                    if (!canSeeTargetFrom(stance, target)) continue;
+                    boolean currentStance = stance.equals(feet);
+                    if (currentStance) {
+                        // A goal cell says nothing about where inside that
+                        // cell the entity stopped. Validate current feet with
+                        // the real eye position and the same AABB reach rule
+                        // used by fake interactions.
+                        if (!baritone.getFakeInteractionController()
+                                .canReach(target)) continue;
+                    } else {
+                        double tx = target.getX() + 0.5D - eyeX;
+                        double ty = target.getY() + 0.5D - eyeY;
+                        double tz = target.getZ() + 0.5D - eyeZ;
+                        if (tx * tx + ty * ty + tz * tz
+                                > reach * reach) continue;
+                    }
+                    if (!canSeeTargetFrom(
+                            stance, target, currentStance)) continue;
                     result.add(stance.immutable());
                 }
             }
@@ -893,9 +924,14 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private boolean canSeeTargetFrom(
-            BlockPos stance, BlockPos target) {
-        Vec3 eye = new Vec3(stance.getX() + 0.5D,
-                stance.getY() + 1.62D, stance.getZ() + 0.5D);
+            BlockPos stance, BlockPos target,
+            boolean useCurrentPlayerEye) {
+        Vec3 eye = useCurrentPlayerEye
+                ? baritone.getPlayerContext().player().getEyePosition()
+                : new Vec3(stance.getX() + 0.5D,
+                        stance.getY() + 1.62D,
+                        stance.getZ() + 0.5D);
+        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
         Vec3 center = target.getCenter();
         Vec3[] samples = {
                 center,
@@ -907,6 +943,7 @@ public final class BuilderProcess implements IBuilderProcess {
                 center.add(0D, 0D, -0.499D)
         };
         for (Vec3 sample : samples) {
+            if (eye.distanceToSqr(sample) > reach * reach) continue;
             HitResult hit = baritone.getPlayerContext().world().clip(
                     new ClipContext(eye, sample,
                             ClipContext.Block.OUTLINE,
@@ -2039,6 +2076,7 @@ public final class BuilderProcess implements IBuilderProcess {
         publishedGoalTarget = null;
         publishedApproachGoal = null;
         publishedTargetChunkLoaded = false;
+        observedPathExecutor = false;
         origin = null;
         paused = false;
         layer = Math.max(0, Baritone.settings().startAtLayer.value);
