@@ -182,6 +182,25 @@ public final class Settings {
     public final Setting<Boolean> autoEatWhenHealthMissing = new Setting<>(true);
     public final Setting<Boolean> autoEatAvoidHarmfulFoods = new Setting<>(true);
     public final Setting<Boolean> autoEatAvoidValuableFoods = new Setting<>(true);
+    public final Setting<Boolean> fakePlayerPublicMessages = new Setting<>(true);
+    public final Setting<Integer> fakePlayerMessageCooldownTicks =
+            new Setting<>(200);
+    public final Setting<String> fakePlayerLowFoodMessage =
+            new Setting<>("饿饿，饭饭");
+    public final Setting<String> fakePlayerNoFoodMessage =
+            new Setting<>("背包里没有能吃的东西了。");
+    public final Setting<String> fakePlayerHurtFoodMessage =
+            new Setting<>("受伤了，我先吃点东西恢复一下。");
+    public final Setting<String> fakePlayerTntMessage =
+            new Setting<>("有 TNT 飞过来了，先躲一下！");
+    public final Setting<String> fakePlayerCreeperMessage =
+            new Setting<>("苦力怕靠得太近了！");
+    public final Setting<String> fakePlayerCombatMessage =
+            new Setting<>("有怪物在威胁我，我来处理。");
+    public final Setting<String> fakePlayerFleeMessage =
+            new Setting<>("没有剑或斧，我先撤了！");
+    public final Setting<String> fakePlayerPathFailureMessage =
+            new Setting<>("多次尝试后仍然找不到可行路径。");
     public final Setting<Double> mobSpawnerAvoidanceCoefficient = new Setting<>(2.0D);
     public final Setting<Integer> mobSpawnerAvoidanceRadius = new Setting<>(16);
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5D);

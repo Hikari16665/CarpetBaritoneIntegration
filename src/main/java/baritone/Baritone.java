@@ -79,6 +79,7 @@ public final class Baritone implements IBaritone {
     private final baritone.server.EmergencyAvoidanceController
             emergencyAvoidanceController;
     private final baritone.server.AutoEatController autoEatController;
+    private final baritone.server.FakePlayerStatusMessenger statusMessenger;
     private final ServerLookBehavior lookBehavior;
     private final ServerInventoryController inventoryController;
     private final ServerFakeInteractionController fakeInteractionController;
@@ -141,6 +142,8 @@ public final class Baritone implements IBaritone {
         this.emergencyAvoidanceController =
                 new baritone.server.EmergencyAvoidanceController(this);
         this.autoEatController = new baritone.server.AutoEatController(this);
+        this.statusMessenger = new baritone.server.FakePlayerStatusMessenger(
+                this, autoEatController);
         this.lookBehavior = new ServerLookBehavior(inputController);
         this.inventoryController = new ServerInventoryController(playerContext.player());
         this.inventoryController.bind(this);
@@ -388,6 +391,7 @@ public final class Baritone implements IBaritone {
         emergencyAvoidanceController.tick();
         autoEatController.tick(emergencyAvoidanceController.activeThreat()
                 == baritone.server.EmergencyAvoidanceController.Threat.NONE);
+        statusMessenger.tick(emergencyAvoidanceController.activeThreat());
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
         fakeInteractionController.serverTick();
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);

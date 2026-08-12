@@ -55,6 +55,11 @@ public final class AutoEatController {
         return eatingUntilFull;
     }
 
+    public boolean hasAvailableFood() {
+        return baritone.getPlayerContext().player().getInventory()
+                .getNonEquipmentItems().stream().anyMatch(this::isAllowedFood);
+    }
+
     private boolean selectBestFood(int missingHunger) {
         ItemStack best = baritone.getPlayerContext().player().getInventory()
                 .getNonEquipmentItems().stream()
