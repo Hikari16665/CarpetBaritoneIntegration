@@ -22,7 +22,9 @@ import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -58,6 +60,9 @@ final class BuilderMaterialRecovery {
     private int probeChunkX;
     private int probeChunkZ;
     private int probeFailures;
+    private int targetInventoryCount;
+    private int acquiredTotal;
+    private final Set<BlockPos> visitedContainers = new HashSet<>();
 
     BuilderMaterialRecovery(Baritone baritone) {
         this.baritone = baritone;
@@ -91,15 +96,28 @@ final class BuilderMaterialRecovery {
 
     void request(Item item) {
         if (item == null) return;
-        request("item:" + item,
-                stack -> stack.is(item));
+        request("item:" + item, stack -> stack.is(item), 1, 1);
     }
 
-    void request(String key, Predicate<ItemStack> matcher) {
-        if (key == null || matcher == null
-                || key.equals(requestedKey)) return;
+    boolean request(String key, Predicate<ItemStack> matcher,
+                    int estimatedRequired, int maximumBatch) {
+        if (key == null || matcher == null) return false;
+        int desired = targetInventoryCount(
+                estimatedRequired, maximumBatch);
+        if (key.equals(requestedKey)) {
+            targetInventoryCount = Math.max(
+                    targetInventoryCount, desired);
+            return true;
+        }
+        // Finish one material acquisition before switching to another. The
+        // Builder scan can observe several missing types in one tick; letting
+        // the last one replace the first caused repeated partial refills.
+        if (requestedKey != null) return false;
         requestedKey = key;
         requested = matcher;
+        targetInventoryCount = desired;
+        acquiredTotal = 0;
+        visitedContainers.clear();
         origin = baritone.getPlayerContext().playerFeet().immutable();
         target = null;
         targetFailures = 0;
@@ -117,7 +135,7 @@ final class BuilderMaterialRecovery {
                         + ".." + selectionMax + " chunks="
                         + rectangularChunkCount);
             }
-            return;
+            return true;
         }
         selectionSearch = false;
         selectionMin = null;
@@ -137,6 +155,7 @@ final class BuilderMaterialRecovery {
         offsets.sort(Comparator.comparingInt(offset ->
                 offset.x * offset.x + offset.z * offset.z));
         order = List.copyOf(offsets);
+        return true;
     }
 
     void clear() {
@@ -153,6 +172,9 @@ final class BuilderMaterialRecovery {
         selectionMax = null;
         rectangularCursor = 0L;
         rectangularChunkCount = 0L;
+        targetInventoryCount = 0;
+        acquiredTotal = 0;
+        visitedContainers.clear();
     }
 
     Result tick() {
@@ -261,6 +283,7 @@ final class BuilderMaterialRecovery {
                 .filter(entry -> count(
                         supported(entry.getValue())) > 0)
                 .map(entry -> entry.getKey().immutable())
+                .filter(pos -> !visitedContainers.contains(pos))
                 .min(Comparator.comparingDouble(origin::distSqr))
                 .orElse(null);
     }
@@ -300,6 +323,11 @@ final class BuilderMaterialRecovery {
     }
 
     private Result approachOrTake() {
+        int remaining = remainingToAcquire();
+        if (remaining <= 0) {
+            clear();
+            return Result.ACQUIRED;
+        }
         Container container = containerAt(target);
         if (container == null || count(container) <= 0) {
             target = null;
@@ -313,16 +341,59 @@ final class BuilderMaterialRecovery {
             return Result.WORKING;
         }
         baritone.cancelPath();
-        int acquired = take(container, Math.max(1,
-                Baritone.settings().printerContainerRefillBatch.value));
+        BlockPos visited = target;
+        int acquired = take(container, remaining);
+        acquiredTotal += acquired;
+        visitedContainers.add(visited);
         target = null;
         targetFailures = 0;
-        if (acquired > 0) {
+        if (remainingToAcquire() <= 0) {
             clear();
             return Result.ACQUIRED;
         }
-        return scanExhausted()
-                ? Result.EXHAUSTED : Result.WORKING;
+        if (!hasInventorySpace()) {
+            boolean obtainedSomething = acquiredTotal > 0;
+            clear();
+            return obtainedSomething ? Result.ACQUIRED : Result.EXHAUSTED;
+        }
+        // More than one useful container may share the same chunk. Re-read
+        // it immediately before advancing the chunk cursor so a large
+        // forecast can be satisfied in one visit to the storage area.
+        LevelChunk chunk = baritone.getPlayerContext().world()
+                .getChunkSource().getChunkNow(
+                        visited.getX() >> 4, visited.getZ() >> 4);
+        if (chunk != null) {
+            target = findTarget(chunk);
+            if (target != null) return Result.WORKING;
+        }
+        if (!scanExhausted()) return Result.WORKING;
+        boolean obtainedSomething = acquiredTotal > 0;
+        clear();
+        return obtainedSomething ? Result.ACQUIRED : Result.EXHAUSTED;
+    }
+
+    private int remainingToAcquire() {
+        int carried = baritone.getInventoryController()
+                .countAccessible(requested);
+        return Math.max(0, targetInventoryCount - carried);
+    }
+
+    private boolean hasInventorySpace() {
+        for (ItemStack stack : baritone.getPlayerContext().player()
+                .getInventory().getNonEquipmentItems()) {
+            if (stack.isEmpty()
+                    || requested.test(stack)
+                    && stack.getCount() < stack.getMaxStackSize()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static int targetInventoryCount(
+            int estimatedRequired, int maximumBatch) {
+        int maximum = Math.max(1, maximumBatch);
+        return Math.max(1, Math.min(estimatedRequired, maximum));
     }
 
     private int take(Container container, int maximum) {
