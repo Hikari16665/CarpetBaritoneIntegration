@@ -536,6 +536,11 @@ public final class BlockInteractionTask {
         baritone.getInputOverrideHandler().clearAllKeys();
         baritone.getInputController().tick();
         feedback.accept(message);
+        if (message.startsWith("已")) {
+            baritone.getStatusMessenger().taskComplete(message);
+        } else if (!message.equals("方块任务已停止")) {
+            baritone.getStatusMessenger().taskFailure(message);
+        }
     }
 
     private static String format(BlockPos pos) {

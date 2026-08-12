@@ -948,7 +948,8 @@ public final class BasicGoalCommandHandler {
             throw new IllegalArgumentException("找不到可跟随的玩家: " + args[1]);
         }
         java.util.UUID followedId = followed.getUUID();
-        baritone.startFollowing(entity -> entity.getUUID().equals(followedId));
+        baritone.startFollowing(entity -> entity.getUUID().equals(followedId),
+                followed.getScoreboardName());
         reply(fakePlayer, sender, "开始持续跟随 " + followed.getScoreboardName());
     }
 
@@ -1695,6 +1696,7 @@ public final class BasicGoalCommandHandler {
         // by PathingControlManager on the next tick. Keep direct navigation
         // under CustomGoalProcess, matching upstream goal/path commands.
         baritone.cancelAll();
+        baritone.getStatusMessenger().beginTask("导航到 " + destination);
         baritone.getCustomGoalProcess().setGoalAndPath(
                 goal, suppressTrashDiscard);
     }

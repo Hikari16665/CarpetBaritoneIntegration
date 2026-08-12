@@ -98,7 +98,10 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (!isActive()) return null;
         int inventoryCount = matchingInventoryCount();
         if (desiredQuantity > 0 && inventoryCount - initialQuantity >= desiredQuantity) {
-            feedback.accept("已获得 " + (inventoryCount - initialQuantity) + " 个目标物品");
+            String completion = "已获得 " + (inventoryCount - initialQuantity)
+                    + " 个目标物品";
+            feedback.accept(completion);
+            baritone.getStatusMessenger().taskComplete(completion);
             onLostControl();
             return null;
         }
@@ -137,6 +140,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             } else if (!areaMine
                     && !Baritone.settings().exploreForBlocks.value) {
                 feedback.accept("没有可到达的目标方块，挖掘任务结束");
+                baritone.getStatusMessenger().taskFailure(
+                        "没有可到达的目标方块");
                 onLostControl();
                 return null;
             }
@@ -206,6 +211,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         }
         if (!Baritone.settings().exploreForBlocks.value) {
             feedback.accept("当前已加载和缓存的区块中没有目标方块");
+            baritone.getStatusMessenger().taskFailure(
+                    "当前已加载和缓存的区块中没有目标方块");
             onLostControl();
             return null;
         }
@@ -622,6 +629,8 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         this.desiredQuantity = Math.max(0, quantity);
         this.feedback = feedback == null ? ignored -> { } : feedback;
         this.initialQuantity = matchingInventoryCount();
+        baritone.getStatusMessenger().beginTask(
+                quantity > 0 ? "挖掘 " + quantity + " 个目标物品" : "持续挖掘");
         rescan();
     }
 

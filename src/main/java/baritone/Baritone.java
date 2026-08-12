@@ -391,7 +391,7 @@ public final class Baritone implements IBaritone {
         emergencyAvoidanceController.tick();
         autoEatController.tick(emergencyAvoidanceController.activeThreat()
                 == baritone.server.EmergencyAvoidanceController.Threat.NONE);
-        statusMessenger.tick(emergencyAvoidanceController.activeThreat());
+        statusMessenger.tick();
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
         fakeInteractionController.serverTick();
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);
@@ -544,9 +544,11 @@ public final class Baritone implements IBaritone {
     public void startBlockTask(BlockInteractionTask task) {
         cancelAll();
         this.blockTask = Objects.requireNonNull(task, "task");
+        statusMessenger.beginTask("方块操作 " + task.status());
     }
 
     public void cancelAll() {
+        statusMessenger.cancelTask();
         cancelPath();
         pathingControlManager.cancelEverything();
         if (blockTask != null) {
@@ -661,6 +663,10 @@ public final class Baritone implements IBaritone {
 
     public CleanProcess getCleanProcess() {
         return cleanProcess;
+    }
+
+    public baritone.server.FakePlayerStatusMessenger getStatusMessenger() {
+        return statusMessenger;
     }
 
     public PauseProcess getPauseProcess() {
@@ -1077,8 +1083,16 @@ public final class Baritone implements IBaritone {
     }
 
     public void startFollowing(java.util.function.Predicate<net.minecraft.world.entity.Entity> filter) {
+        startFollowing(filter, "跟随目标");
+    }
+
+    public void startFollowing(
+            java.util.function.Predicate<net.minecraft.world.entity.Entity> filter,
+            String targetDescription) {
         cancelAll();
         followProcess.follow(filter);
+        followProcess.targetDescription(targetDescription);
+        statusMessenger.beginTask("跟随 " + targetDescription);
     }
 
     public boolean isTrashDrop(ItemEntity entity) {
