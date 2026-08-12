@@ -1357,12 +1357,9 @@ public final class BasicGoalCommandHandler {
                     + settingValue(setting.defaultValue) + "）");
             return;
         }
-        if (args.length != 3) {
-            throw new IllegalArgumentException(
-                    "设置值不能包含空格；列表请使用逗号分隔");
-        }
         Object parsed = parseSettingValue(
-                field, setting.defaultValue, args[2]);
+                field, setting.defaultValue,
+                settingText(setting.defaultValue, args, 2));
         setSettingValue(setting, parsed);
         recalculateAfterSettingChange(baritone);
         reply(fakePlayer, sender, field.getName() + " = "
@@ -1391,7 +1388,7 @@ public final class BasicGoalCommandHandler {
                     + settingValue(setting.defaultValue));
             return;
         }
-        if (args.length != 3 && args.length != 4) {
+        if (args.length < 3) {
             throw new IllegalArgumentException(
                     "用法: settings default <设置名> [值]，或 "
                             + "settings default reset <设置名|all>");
@@ -1400,7 +1397,7 @@ public final class BasicGoalCommandHandler {
         Settings.Setting<?> setting = readSetting(settings, field);
         Object value = args.length == 3 ? setting.value
                 : parseSettingValue(field, setting.factoryDefaultValue,
-                        args[3]);
+                        settingText(setting.factoryDefaultValue, args, 3));
         ServerSettingsStore.setDefault(field, setting, value);
         reply(fakePlayer, sender, field.getName()
                 + " 已设为持久默认值 "
@@ -1650,6 +1647,22 @@ public final class BasicGoalCommandHandler {
     private static void recalculateAfterSettingChange(Baritone baritone) {
         Goal goal = baritone.getActiveGoal();
         if (goal != null) baritone.recalculateForProcess(goal);
+    }
+
+    static String settingText(
+            Object valueType, String[] args, int firstValueIndex) {
+        if (firstValueIndex >= args.length) {
+            throw new IllegalArgumentException("缺少设置值");
+        }
+        if (valueType instanceof String) {
+            return String.join(" ", java.util.Arrays.copyOfRange(
+                    args, firstValueIndex, args.length));
+        }
+        if (args.length != firstValueIndex + 1) {
+            throw new IllegalArgumentException(
+                    "只有文字设置可以包含空格；列表请使用逗号分隔");
+        }
+        return args[firstValueIndex];
     }
 
     private static void recalculateAllAfterSettingChange() {
