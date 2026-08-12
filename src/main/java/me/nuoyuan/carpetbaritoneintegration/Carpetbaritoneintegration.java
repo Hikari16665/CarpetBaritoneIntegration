@@ -28,6 +28,7 @@ import me.nuoyuan.carpetbaritoneintegration.network.CommandSubmitPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.CommandResultPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.SettingOptions;
 import baritone.server.BasicGoalCommandHandler;
+import baritone.server.ServerSettingsStore;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import carpet.patches.EntityPlayerMPFake;
 import java.util.LinkedHashSet;
@@ -133,6 +134,8 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                             result.message()));
                         }));
         BaritoneAPI.setProvider(new ServerBaritoneProvider(BARITONES));
+        ServerLifecycleEvents.SERVER_STARTING.register(
+                server -> ServerSettingsStore.load());
         ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> BARITONES.clear());
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
