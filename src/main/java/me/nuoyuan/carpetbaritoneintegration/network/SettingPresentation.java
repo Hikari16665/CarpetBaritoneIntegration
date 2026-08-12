@@ -187,6 +187,16 @@ final class SettingPresentation {
             case "autoEatWhenHealthMissing" -> "受伤且未吃饱时进食";
             case "autoEatAvoidHarmfulFoods" -> "自动进食避开有害食物";
             case "autoEatAvoidValuableFoods" -> "自动进食保留贵重食物";
+            case "fakePlayerPublicMessages" -> "假人公屏状态消息";
+            case "fakePlayerMessageCooldownTicks" -> "状态消息重复冷却";
+            case "fakePlayerLowFoodMessage" -> "低饥饿消息";
+            case "fakePlayerNoFoodMessage" -> "没有食物消息";
+            case "fakePlayerHurtFoodMessage" -> "受伤进食消息";
+            case "fakePlayerTntMessage" -> "躲避 TNT 消息";
+            case "fakePlayerCreeperMessage" -> "躲避苦力怕消息";
+            case "fakePlayerCombatMessage" -> "迎战怪物消息";
+            case "fakePlayerFleeMessage" -> "无武器逃跑消息";
+            case "fakePlayerPathFailureMessage" -> "最终寻路失败消息";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "trashDiscardEnabled" -> "任务中自动丢弃垃圾";
@@ -232,6 +242,9 @@ final class SettingPresentation {
         if (key.startsWith("elytra")) return "鞘翅飞行";
         if (key.startsWith("farm") || key.startsWith("replant")) return "农场";
         if (key.startsWith("follow")) return "跟随";
+        if (key.startsWith("fakePlayer") && key.contains("Message")) {
+            return "公屏状态消息";
+        }
         if (key.startsWith("explore") || key.startsWith("worldExploring")) return "探索";
         if (key.contains("Cache") || key.startsWith("chunk")
                 || key.startsWith("repack") || key.startsWith("prune")) return "世界缓存";
@@ -255,6 +268,16 @@ final class SettingPresentation {
             case "autoTool" -> "破坏方块前，根据真实挖掘速度、附魔和耐久自动选择快捷栏中的最佳工具。";
             case "acceptableThrowawayItems" -> "寻路需要搭高或架桥时可以消耗的方块物品；任务目标物品仍会受到额外保护。";
             case "trashItems" -> "任务无关且无需保留时可以主动丢弃的物品类型。";
+            case "fakePlayerPublicMessages" -> "允许假人以自己的名字向全服公屏报告重要状态变化；关闭后不会发送任何自动公屏消息。";
+            case "fakePlayerMessageCooldownTicks" -> "同一种状态消息再次发送前至少等待的服务器刻数；状态不发生变化时不会重复发送。";
+            case "fakePlayerLowFoodMessage" -> "饥饿值低于自动进食阈值时发送。支持 {player}、{food}、{health}、{max_health} 和 {threat} 占位符；留空可禁用。";
+            case "fakePlayerNoFoodMessage" -> "需要进食但背包中没有允许自动食用的食物时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerHurtFoodMessage" -> "生命值未满且饥饿值未满、准备通过进食恢复时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerTntMessage" -> "检测到会逼近的点燃 TNT 并开始躲避时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerCreeperMessage" -> "危险苦力怕进入紧急距离并开始躲避时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerCombatMessage" -> "持有剑或斧并开始迎战有威胁的怪物时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerFleeMessage" -> "没有剑或斧、开始逃离有威胁的怪物时发送；支持状态消息占位符，留空可禁用。";
+            case "fakePlayerPathFailureMessage" -> "路径重试耗尽且任务目标仍不可达时发送；支持状态消息占位符，留空可禁用。";
             case "trashDiscardEnabled" -> "任务移动期间自动丢弃垃圾黑名单中的无用物品；关闭后仅停止主动丢弃，不影响原版拾取。";
             case "throwawayBlockReserve" -> "即使方块位于垃圾黑名单，也至少保留这么多个安全完整方块用于搭高和架桥；默认约两组。";
             case "throwawayBlockReserveMaximum" -> "当前路径需要大量放置时，动态垫路方块保留量允许增长到的上限。";
