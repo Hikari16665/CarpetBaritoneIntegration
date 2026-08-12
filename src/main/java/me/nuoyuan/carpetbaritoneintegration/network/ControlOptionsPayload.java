@@ -135,7 +135,8 @@ public record ControlOptionsPayload(
     }
 
     public record SettingOption(
-            String name, String type, String value,
+            String name, String displayName, String description,
+            String category, String type, String value,
             String defaultValue, List<String> choices) {
         public SettingOption {
             choices = List.copyOf(choices);
@@ -143,6 +144,9 @@ public record ControlOptionsPayload(
 
         private void write(RegistryFriendlyByteBuf buffer) {
             buffer.writeUtf(name, 128);
+            buffer.writeUtf(displayName, 256);
+            buffer.writeUtf(description, 1024);
+            buffer.writeUtf(category, 64);
             buffer.writeUtf(type, 32);
             buffer.writeUtf(value, 32767);
             buffer.writeUtf(defaultValue, 32767);
@@ -151,7 +155,9 @@ public record ControlOptionsPayload(
 
         private static SettingOption read(RegistryFriendlyByteBuf buffer) {
             return new SettingOption(
-                    buffer.readUtf(128), buffer.readUtf(32),
+                    buffer.readUtf(128), buffer.readUtf(256),
+                    buffer.readUtf(1024), buffer.readUtf(64),
+                    buffer.readUtf(32),
                     buffer.readUtf(32767), buffer.readUtf(32767),
                     readNames(buffer));
         }

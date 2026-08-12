@@ -55,7 +55,7 @@ final class SettingsListScreen extends AbstractScreen {
         addWidget(fakeSelector);
         search = new EditBoxWidget(font, left, top + 44, 300, 20,
                 Component.literal("搜索设置"));
-        search.setHint(Component.literal("搜索设置名称"));
+        search.setHint(Component.literal("搜索中文名称、英文键或分类"));
         search.setValue(filter);
         addWidget(search);
         addWidget(new ButtonWidget(left + 304, top + 44, 76, 20,
@@ -79,14 +79,17 @@ final class SettingsListScreen extends AbstractScreen {
         scroll.setY(top + 68);
         String normalized = filter.toLowerCase(Locale.ROOT);
         for (SettingOption option : ClientControlOptions.settings()) {
-            if (!option.name().toLowerCase(Locale.ROOT)
+            String searchable = option.name() + " " + option.displayName()
+                    + " " + option.description() + " " + option.category();
+            if (!searchable.toLowerCase(Locale.ROOT)
                     .contains(normalized)) continue;
             EmptyComponent row = new EmptyComponent(0, 0, 366, 24);
             String value = option.value().length() > 32
                     ? option.value().substring(0, 29) + "..."
                     : option.value();
             row.addWidget(new ButtonWidget(0, 0, 366, 22,
-                    Component.literal(option.name() + " = " + value),
+                    Component.literal("[" + option.category() + "] "
+                            + option.displayName() + " = " + value),
                     button -> minecraft.setScreen(
                             new SettingEditorScreen(this, option,
                                     fakeName(fakeIndex)))));
@@ -109,7 +112,7 @@ final class SettingsListScreen extends AbstractScreen {
     private void refreshFake() {
         List<String> fakes = ClientControlOptions.fakePlayers();
         String fake = fakeName(fakeIndex);
-        fakeSelector.setMessage(Component.literal("假人选择器: "
+        fakeSelector.setMessage(Component.literal("假人选择器："
                 + (fake.isEmpty() ? "没有可用假人" : fake)));
         fakeSelector.active = !fakes.isEmpty();
     }
