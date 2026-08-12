@@ -380,7 +380,7 @@ final class BuilderMaterialRecovery {
 
     private boolean hasInventorySpace() {
         for (ItemStack stack : baritone.getPlayerContext().player()
-                .getInventory().getNonEquipmentItems()) {
+                .getInventory().items) {
             if (stack.isEmpty()
                     || requested.test(stack)
                     && stack.getCount() < stack.getMaxStackSize()) {

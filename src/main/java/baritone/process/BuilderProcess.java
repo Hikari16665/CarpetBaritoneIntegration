@@ -1726,7 +1726,7 @@ public final class BuilderProcess implements IBuilderProcess {
                 stack -> stack.is(item));
         int inventoryCapacity = Math.max(1,
                 baritone.getPlayerContext().player().getInventory()
-                        .getNonEquipmentItems().size())
+                        .items.size())
                 * Math.max(1, item.getDefaultMaxStackSize());
         int limit = Math.max(carried + 1, inventoryCapacity);
         int required = 0;
