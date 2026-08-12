@@ -335,6 +335,16 @@ public final class Settings {
                     Blocks.ANDESITE.asItem(),
                     Blocks.TUFF.asItem()
             )));
+    /** Enables Q-style disposal of configured trash while a task is moving. */
+    public final Setting<Boolean> trashDiscardEnabled = new Setting<>(true);
+    /** Baseline amount of safe full blocks retained for pillars and bridges. */
+    public final Setting<Integer> throwawayBlockReserve = new Setting<>(128);
+    /** Upper bound for the dynamic reserve when the active path needs blocks. */
+    public final Setting<Integer> throwawayBlockReserveMaximum =
+            new Setting<>(256);
+    /** Extra blocks retained beyond placements visible in the current path. */
+    public final Setting<Integer> throwawayPlacementSafetyMargin =
+            new Setting<>(16);
 
     // Walking path calculation and execution settings.
     public final Setting<Boolean> allowBreak = new Setting<>(true);

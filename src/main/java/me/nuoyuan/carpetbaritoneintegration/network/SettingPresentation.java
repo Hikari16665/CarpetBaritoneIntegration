@@ -189,6 +189,10 @@ final class SettingPresentation {
             case "autoEatAvoidValuableFoods" -> "自动进食保留贵重食物";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
+            case "trashDiscardEnabled" -> "任务中自动丢弃垃圾";
+            case "throwawayBlockReserve" -> "垫路方块基础保留量";
+            case "throwawayBlockReserveMaximum" -> "垫路方块最大保留量";
+            case "throwawayPlacementSafetyMargin" -> "计划放置安全余量";
             case "blocksToAvoid" -> "寻路应避开的方块";
             case "blocksToDisallowBreaking" -> "绝对禁止破坏的方块";
             case "blocksToAvoidBreaking" -> "尽量避免破坏的方块";
@@ -233,6 +237,7 @@ final class SettingPresentation {
                 || key.startsWith("repack") || key.startsWith("prune")) return "世界缓存";
         if (key.contains("Inventory") || key.contains("Tool")
                 || key.startsWith("item") || key.contains("Throwaway")
+                || key.startsWith("throwaway")
                 || key.startsWith("trash")) return "物品栏";
         if (key.contains("Avoid") || key.startsWith("mob")) return "安全与规避";
         if (key.startsWith("allow") || key.startsWith("assume")
@@ -250,6 +255,10 @@ final class SettingPresentation {
             case "autoTool" -> "破坏方块前，根据真实挖掘速度、附魔和耐久自动选择快捷栏中的最佳工具。";
             case "acceptableThrowawayItems" -> "寻路需要搭高或架桥时可以消耗的方块物品；任务目标物品仍会受到额外保护。";
             case "trashItems" -> "任务无关且无需保留时可以主动丢弃的物品类型。";
+            case "trashDiscardEnabled" -> "任务移动期间自动丢弃垃圾黑名单中的无用物品；关闭后仅停止主动丢弃，不影响原版拾取。";
+            case "throwawayBlockReserve" -> "即使方块位于垃圾黑名单，也至少保留这么多个安全完整方块用于搭高和架桥；默认约两组。";
+            case "throwawayBlockReserveMaximum" -> "当前路径需要大量放置时，动态垫路方块保留量允许增长到的上限。";
+            case "throwawayPlacementSafetyMargin" -> "在当前路径已知放置数量之外额外保留的垫路方块，避免重算或临时搭高时断料。";
             case "blockPlacementPenalty" -> "A* 为放置一个垫路方块增加的基础代价；越低越愿意搭路。";
             case "blockBreakAdditionalPenalty" -> "普通寻路为破坏方块增加的额外代价；越低越愿意开路。";
             case "mineBlockBreakAdditionalPenalty" -> "mine 任务开挖矿道时使用的额外破坏代价。";
