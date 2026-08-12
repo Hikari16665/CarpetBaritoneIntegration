@@ -28,6 +28,7 @@ import java.util.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 public abstract class Movement implements IMovement, MovementHelper {
@@ -157,10 +158,8 @@ public abstract class Movement implements IMovement, MovementHelper {
             boolean handled = false;
             for (BetterBlockPos candidate : positionsToBreak) {
                 if (!MovementHelper.canWalkThrough(ctx, candidate)
-                        && serverBaritone.getFakeInteractionController()
-                        .canReach(candidate)) {
-                    serverBaritone.getFakeInteractionController()
-                            .breakBlock(candidate);
+                        && requestPathingBreak(
+                                serverBaritone, candidate)) {
                     currentState.setInput(Input.CLICK_LEFT, false);
                     handled = true;
                     break;
@@ -169,10 +168,8 @@ public abstract class Movement implements IMovement, MovementHelper {
             if (!handled && positionToPlace != null
                     && !MovementHelper.canWalkThrough(
                     ctx, positionToPlace)
-                    && serverBaritone.getFakeInteractionController()
-                    .canReach(positionToPlace)) {
-                serverBaritone.getFakeInteractionController()
-                        .breakBlock(positionToPlace);
+                    && requestPathingBreak(
+                            serverBaritone, positionToPlace)) {
                 currentState.setInput(Input.CLICK_LEFT, false);
             }
         }
@@ -185,10 +182,9 @@ public abstract class Movement implements IMovement, MovementHelper {
                 BetterBlockPos obstruction =
                         !MovementHelper.canWalkThrough(ctx, feet)
                                 ? feet : feet.above();
-                if (serverBaritone.getFakeInteractionController()
-                        .canReach(obstruction)) {
-                    serverBaritone.getFakeInteractionController()
-                            .breakBlock(obstruction);
+                if (!requestPathingBreak(
+                        serverBaritone, obstruction)) {
+                    currentState.setStatus(MovementStatus.UNREACHABLE);
                 }
             }
         }
@@ -224,10 +220,8 @@ public abstract class Movement implements IMovement, MovementHelper {
             if (!MovementHelper.canWalkThrough(ctx, blockPos)) { // can't break air, so don't try
                 somethingInTheWay = true;
                 if (baritone instanceof Baritone serverBaritone
-                        && serverBaritone.getFakeInteractionController()
-                        .canReach(blockPos)) {
-                    serverBaritone.getFakeInteractionController()
-                            .breakBlock(blockPos);
+                        && requestPathingBreak(
+                                serverBaritone, blockPos)) {
                     return false;
                 }
                 state.setTarget(new MovementState.MovementTarget(RotationUtils.calcRotationFromVec3d(ctx.playerHead(),
@@ -243,6 +237,44 @@ public abstract class Movement implements IMovement, MovementHelper {
             state.setStatus(MovementStatus.UNREACHABLE);
             return true;
         }
+        return true;
+    }
+
+    /**
+     * Breaks the requested movement cell or its visible foreground occluder.
+     * If neither can legally be broken the movement fails immediately, which
+     * causes the server scheduler to discard and recalculate the stale path.
+     */
+    private boolean requestPathingBreak(
+            Baritone serverBaritone, BlockPos requested) {
+        var interaction = serverBaritone
+                .getFakeInteractionController();
+        if (!interaction.canReach(requested)) return false;
+        if (interaction.canBreakFromHere(requested)) {
+            interaction.breakBlock(requested);
+            return true;
+        }
+        Optional<BlockPos> obstruction =
+                interaction.visibleBreakObstruction(requested);
+        if (obstruction.isEmpty()) return false;
+        BlockPos blocker = obstruction.get();
+        BlockState state = ctx.world().getBlockState(blocker);
+        CalculationContext context = serverBaritone
+                .getPathingBehavior()
+                .secretInternalGetCalculationContext();
+        if (context.breakCostMultiplierAt(
+                blocker.getX(), blocker.getY(), blocker.getZ(), state)
+                >= COST_INF) {
+            return false;
+        }
+        if (Baritone.settings().diagnosticLogging.value
+                && ctx.world().getGameTime() % 20L == 0L) {
+            System.out.println("[CBI-DIAG] movement-break-occlusion player="
+                    + ctx.player().getScoreboardName()
+                    + " requested=" + requested
+                    + " blocker=" + blocker);
+        }
+        interaction.breakBlock(blocker);
         return true;
     }
 
