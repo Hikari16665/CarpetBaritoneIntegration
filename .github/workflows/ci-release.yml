@@ -52,24 +52,30 @@ jobs:
         shell: bash
         run: |
           minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          mod_version="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          mod_version_date="$(sed -n 's/^mod_version_date=//p' gradle.properties | head -n 1 | tr -d '\r')"
           test -n "$minecraft_version"
-          artifact="$(find build/libs -maxdepth 1 -type f -name '*.jar' \
-            ! -name '*-sources.jar' ! -name '*-dev.jar' | head -n 1)"
-          test -n "$artifact"
+          [[ "$mod_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          [[ "$mod_version_date" =~ ^[0-9]{6}$ ]]
+          version="v${mod_version}+${mod_version_date}"
+          artifact="build/libs/carpetbaritoneintegration-${version}.jar"
+          test -f "$artifact"
           echo "path=$artifact" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$artifact")" >> "$GITHUB_OUTPUT"
           echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CarpetBaritoneIntegration-${{ steps.artifact.outputs.minecraft-version }}
+          name: CarpetBaritoneIntegration-${{ steps.artifact.outputs.minecraft-version }}-${{ steps.artifact.outputs.version }}
           path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
 
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
       minecraft-version: ${{ steps.artifact.outputs.minecraft-version }}
+      version: ${{ steps.artifact.outputs.version }}
 
   release:
     name: Release changed version
@@ -89,15 +95,22 @@ jobs:
         id: version
         shell: bash
         run: |
-          version="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          mod_version="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          mod_version_date="$(sed -n 's/^mod_version_date=//p' gradle.properties | head -n 1 | tr -d '\r')"
           minecraft_version="$(sed -n 's/^minecraft_version=//p' gradle.properties | head -n 1 | tr -d '\r')"
-          test -n "$version"
+          [[ "$mod_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          [[ "$mod_version_date" =~ ^[0-9]{6}$ ]]
           test -n "$minecraft_version"
+          version="v${mod_version}+${mod_version_date}"
 
           previous=""
           if git rev-parse "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
-            previous="$(git show "${{ github.event.before }}:gradle.properties" 2>/dev/null \
-              | sed -n 's/^mod_version=//p' | head -n 1 | tr -d '\r' || true)"
+            previous_properties="$(git show "${{ github.event.before }}:gradle.properties" 2>/dev/null || true)"
+            previous_mod_version="$(sed -n 's/^mod_version=//p' <<< "$previous_properties" | head -n 1 | tr -d '\r')"
+            previous_mod_version_date="$(sed -n 's/^mod_version_date=//p' <<< "$previous_properties" | head -n 1 | tr -d '\r')"
+            if [[ -n "$previous_mod_version" && -n "$previous_mod_version_date" ]]; then
+              previous="v${previous_mod_version}+${previous_mod_version_date}"
+            fi
           fi
 
           changed=false
@@ -107,7 +120,7 @@ jobs:
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "minecraft-version=$minecraft_version" >> "$GITHUB_OUTPUT"
-          echo "tag=mc-$minecraft_version-v$version" >> "$GITHUB_OUTPUT"
+          echo "tag=mc-$minecraft_version-$version" >> "$GITHUB_OUTPUT"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "Minecraft: $minecraft_version; current version: $version; previous version: ${previous:-<none>}"
 
@@ -115,7 +128,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: CarpetBaritoneIntegration-${{ steps.version.outputs.minecraft-version }}
+          name: CarpetBaritoneIntegration-${{ steps.version.outputs.minecraft-version }}-${{ steps.version.outputs.version }}
           path: release-artifact
 
       - name: Create GitHub Release
