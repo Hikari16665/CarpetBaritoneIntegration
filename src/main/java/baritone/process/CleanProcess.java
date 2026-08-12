@@ -86,6 +86,7 @@ public final class CleanProcess implements ICleanProcess {
         y = max.getY();
         sealingFluids = true;
         this.feedback = feedback == null ? ignored -> { } : feedback;
+        baritone.getStatusMessenger().beginTask("清空选区");
         diagnostic("fluid seal bounds=" + fluidSealMin()
                 + ".." + fluidSealMax() + " selection=" + min
                 + ".." + max);
@@ -260,8 +261,10 @@ public final class CleanProcess implements ICleanProcess {
             assign(support, support.getY(), Phase.REMOVE_SUPPORT);
             return;
         }
-        feedback.accept("选区清理完成：破坏 " + cleared
-                + " 个方块，封堵 " + sealed + " 个流体格");
+        String completion = "选区清理完成：破坏 " + cleared
+                + " 个方块，封堵 " + sealed + " 个流体格";
+        feedback.accept(completion);
+        baritone.getStatusMessenger().taskComplete(completion);
         onLostControl();
     }
 
@@ -276,6 +279,7 @@ public final class CleanProcess implements ICleanProcess {
         if (!baritone.getInventoryController().selectThrowawayForLocation(
                 true, target.getX(), target.getY(), target.getZ())) {
             feedback.accept("没有可用于清除流体的完整垫脚方块，清理已停止");
+            baritone.getStatusMessenger().noBridgeBlocks(true);
             onLostControl();
             return;
         }

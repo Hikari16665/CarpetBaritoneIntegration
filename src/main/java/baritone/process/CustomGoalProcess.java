@@ -62,16 +62,21 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
                 baritone.getPlayerContext().player().connection.disconnect(
                         Component.literal("[Baritone] Arrived at goal!"));
             }
+            baritone.getStatusMessenger().taskComplete("已到达导航目标");
             onLostControl();
             return;
         }
         if (state == State.PATH_REQUESTED) {
             state = State.EXECUTING;
             if (!baritone.pathToGoal(goal, 2_000L, 5_000L)) {
+                baritone.getStatusMessenger().taskFailure(
+                        "初始路径计算失败");
                 onLostControl();
             }
         } else if (state == State.EXECUTING && baritone.getPathExecutor() == null) {
             if (!baritone.pathToGoal(goal, 5_000L, 15_000L)) {
+                baritone.getStatusMessenger().taskFailure(
+                        "重新计算路径后仍不可达");
                 onLostControl();
             }
         }
@@ -80,6 +85,8 @@ public final class CustomGoalProcess implements ICustomGoalProcess {
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
         if (state == State.EXECUTING && calcFailed) {
+            baritone.getStatusMessenger().taskFailure(
+                    "路径计算重试耗尽");
             onLostControl();
             return new PathingCommand(
                     null, PathingCommandType.CANCEL_AND_SET_GOAL);
