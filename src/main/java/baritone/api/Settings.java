@@ -97,7 +97,7 @@ public final class Settings {
     public final Setting<Integer> printerContainerScanChunksPerTick =
             new Setting<>(4);
     public final Setting<Integer> printerContainerRefillBatch =
-            new Setting<>(64);
+            new Setting<>(2304);
     /** Keep dedicated-server ticks running while a fake-player task can
      * continue without a real player online. */
     public final Setting<Boolean> keepServerAwakeForTasks =

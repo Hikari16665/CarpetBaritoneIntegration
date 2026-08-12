@@ -309,6 +309,7 @@ final class SettingPresentation {
             case "printerMaxActionsPerTick" -> "打印建造每个服务器刻最多连续执行的放置或破坏动作数。";
             case "printerRange" -> "打印机从假人当前位置执行蓝图动作的最大距离。";
             case "printerContainerRefill" -> "建造材料不足时，允许从配置的取货选区或附近容器补货。";
+            case "printerContainerRefillBatch" -> "单次自动取货允许携带的最大物品数；Builder 会先估算蓝图剩余需求，再在此上限和背包容量内尽量一次取足。";
             case "diagnosticLogging" -> "向服务器日志输出 CBI 寻路、建造与交互诊断信息。";
             default -> category(key) + "设置：“" + name(key)
                     + "”。修改后会影响所有现有假人和以后创建的假人。";
