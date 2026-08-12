@@ -176,6 +176,12 @@ final class SettingPresentation {
             case "creeperAvoidanceRadius" -> "苦力怕躲避半径";
             case "creeperCriticalRadius" -> "苦力怕紧急距离";
             case "emergencyAvoidanceJump" -> "紧急躲避时允许跳跃";
+            case "autoCombat" -> "自动应对敌对生物";
+            case "hostileDetectionRadius" -> "敌对生物感知半径";
+            case "hostileAggroRadius" -> "近距离主动威胁半径";
+            case "combatAttackReach" -> "自动战斗攻击距离";
+            case "combatMinAttackStrength" -> "自动攻击最小蓄力比例";
+            case "combatFleeWithoutWeapon" -> "无武器时逃离敌怪";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "blocksToAvoid" -> "寻路应避开的方块";
