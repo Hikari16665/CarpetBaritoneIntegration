@@ -54,7 +54,7 @@ final class SettingEditorScreen extends AbstractScreen {
 
     SettingEditorScreen(
             Screen parent, SettingOption option, String fake) {
-        super(Component.literal(option.name()));
+        super(Component.literal(option.displayName()));
         this.parent = parent;
         this.option = option;
         this.fake = fake;
@@ -68,10 +68,13 @@ final class SettingEditorScreen extends AbstractScreen {
         int left = width / 2 - 170;
         int top = height / 2 - 112;
         addComponent(new TextComponent(left, top,
-                Component.literal(option.name())));
+                Component.literal(option.displayName()
+                        + "  [" + option.category() + "]")));
         addComponent(new TextComponent(left, top + 14,
-                Component.literal("类型: " + option.type()
-                        + "  默认: " + option.defaultValue())));
+                Component.literal(option.name() + " · 类型: " + option.type()
+                        + " · 默认: " + option.defaultValue())));
+        addComponent(new TextComponent(left, top + 28,
+                Component.literal(option.description())));
         switch (option.type()) {
             case "BOOLEAN" -> initBoolean(left, top + 42);
             case "INTEGER", "LONG", "FLOAT", "DOUBLE" ->

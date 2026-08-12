@@ -43,7 +43,10 @@ public final class SettingOptions {
                             .getEnumConstants()).map(Enum::name).toList()
                     : List.of();
             return new ControlOptionsPayload.SettingOption(
-                    field.getName(), type, encode(setting.value),
+                    field.getName(), SettingPresentation.name(field.getName()),
+                    SettingPresentation.description(field.getName()),
+                    SettingPresentation.category(field.getName()),
+                    type, encode(setting.value),
                     encode(setting.defaultValue), choices);
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException(exception);
