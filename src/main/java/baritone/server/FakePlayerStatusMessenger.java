@@ -1,103 +1,189 @@
 package baritone.server;
 
 import baritone.Baritone;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Public, configurable and edge-triggered fake-player status messages. */
+/**
+ * Edge-triggered public messages for states that actually need an operator's
+ * attention. Routine movement, eating, combat and hazard avoidance stay quiet.
+ */
 public final class FakePlayerStatusMessenger {
     private static final int MAX_MESSAGE_LENGTH = 256;
+    private static final int STUCK_MIN_TICKS = 200;
+    private static final int STUCK_FAILURES = 3;
 
     private final Baritone baritone;
     private final AutoEatController autoEat;
     private final Map<Event, Long> lastSent = new EnumMap<>(Event.class);
-    private EmergencyAvoidanceController.Threat previousThreat =
-            EmergencyAvoidanceController.Threat.NONE;
-    private boolean wasLowFood;
-    private boolean wasHurtHungry;
-    private boolean wasOutOfFood;
+    private final Map<Event, Boolean> active = new EnumMap<>(Event.class);
     private boolean wasFinalPathFailure;
+    private Vec3 lastProgressPosition;
+    private long lastProgressTick;
+    private int observedPathFailures;
+    private String taskName = "任务";
+    private long taskStartTick = -1L;
 
-    public FakePlayerStatusMessenger(
-            Baritone baritone, AutoEatController autoEat) {
+    public FakePlayerStatusMessenger(Baritone baritone,
+                                     AutoEatController autoEat) {
         this.baritone = baritone;
         this.autoEat = autoEat;
     }
 
-    public void tick(EmergencyAvoidanceController.Threat threat) {
+    /** Polls only the few conditions that have no authoritative process event. */
+    public void tick() {
         ServerPlayer player = baritone.getPlayerContext().player();
-        if (!Baritone.settings().fakePlayerPublicMessages.value) {
-            resetEdges();
-            return;
-        }
-
         int food = player.getFoodData().getFoodLevel();
         int threshold = Math.max(0, Math.min(20,
                 Baritone.settings().autoEatHungerThreshold.value));
-        boolean lowFood = food < threshold;
-        boolean hurtHungry = player.getHealth() < player.getMaxHealth()
-                && food < 20 && !lowFood;
-        boolean needsFood = lowFood || hurtHungry;
-        boolean outOfFood = needsFood && !autoEat.hasAvailableFood();
-        boolean finalPathFailure = baritone.getConsecutivePathFailures() > 0
-                && baritone.getActiveGoal() == null;
+        boolean needsFood = food < threshold
+                || player.getHealth() < player.getMaxHealth() && food < 20;
+        condition(Event.NO_FOOD, needsFood && !autoEat.hasAvailableFood(),
+                Map.of());
 
-        Event event = transition(previousThreat, threat,
-                wasLowFood, lowFood, wasHurtHungry, hurtHungry,
-                wasOutOfFood, outOfFood,
-                wasFinalPathFailure, finalPathFailure);
-
-        previousThreat = threat;
-        wasLowFood = lowFood;
-        wasHurtHungry = hurtHungry;
-        wasOutOfFood = outOfFood;
-        wasFinalPathFailure = finalPathFailure;
-        if (event != null) announce(event, player, food, threat);
+        boolean finalFailure = baritone.getConsecutivePathFailures() > 0
+                && baritone.getActiveGoal() == null
+                && baritone.hasActiveTask();
+        if (finalFailure && !wasFinalPathFailure) {
+            taskFailure("多次自动重算后仍找不到可行路径");
+        }
+        wasFinalPathFailure = finalFailure;
+        updateStuckState(player);
     }
 
-    static Event transition(
-            EmergencyAvoidanceController.Threat previousThreat,
-            EmergencyAvoidanceController.Threat threat,
-            boolean wasLowFood, boolean lowFood,
-            boolean wasHurtHungry, boolean hurtHungry,
-            boolean wasOutOfFood, boolean outOfFood,
-            boolean wasFinalPathFailure, boolean finalPathFailure) {
-        if (threat != EmergencyAvoidanceController.Threat.NONE
-                && threat != previousThreat) {
-            return switch (threat) {
-                case TNT -> Event.TNT;
-                case CREEPER -> Event.CREEPER;
-                case HOSTILE_COMBAT -> Event.COMBAT;
-                case HOSTILE_FLEE -> Event.FLEE;
-                case NONE -> null;
-            };
+    private void updateStuckState(ServerPlayer player) {
+        long now = player.level().getGameTime();
+        if (!baritone.hasActiveTask()) {
+            lastProgressPosition = player.position();
+            lastProgressTick = now;
+            observedPathFailures = 0;
+            condition(Event.STUCK, false, Map.of());
+            return;
         }
-        if (outOfFood && !wasOutOfFood) return Event.NO_FOOD;
-        if (lowFood && !wasLowFood) return Event.LOW_FOOD;
-        if (hurtHungry && !wasHurtHungry) return Event.HURT_FOOD;
-        if (finalPathFailure && !wasFinalPathFailure) {
-            return Event.PATH_FAILURE;
+        if (lastProgressPosition == null
+                || player.position().distanceToSqr(lastProgressPosition)
+                >= 0.25D) {
+            lastProgressPosition = player.position();
+            lastProgressTick = now;
+            observedPathFailures = 0;
+            condition(Event.STUCK, false, Map.of());
         }
-        return null;
+        observedPathFailures = Math.max(observedPathFailures,
+                baritone.getConsecutivePathFailures());
+        boolean stuck = now - lastProgressTick >= STUCK_MIN_TICKS
+                && observedPathFailures >= STUCK_FAILURES;
+        condition(Event.STUCK, stuck, Map.of());
     }
 
-    private void announce(
-            Event event, ServerPlayer player, int food,
-            EmergencyAvoidanceController.Threat threat) {
+    public void beginTask(String name) {
+        taskName = nonBlank(name, "任务");
+        taskStartTick = now();
+        wasFinalPathFailure = false;
+        condition(Event.TASK_FAILURE, false, Map.of());
+        condition(Event.STUCK, false, Map.of());
+        condition(Event.MISSING_TOOL, false, Map.of());
+        condition(Event.MISSING_MATERIALS, false, Map.of());
+        condition(Event.NO_BRIDGE_BLOCKS, false, Map.of());
+        condition(Event.INVENTORY_BLOCKED, false, Map.of());
+    }
+
+    public void cancelTask() {
+        taskStartTick = -1L;
+        taskName = "任务";
+        for (Event event : Event.values()) {
+            if (event != Event.NO_FOOD) active.put(event, false);
+        }
+    }
+
+    public void taskFailure(String reason) {
+        alert(Event.TASK_FAILURE, values("task", taskName,
+                "reason", nonBlank(reason, "未知原因")));
+        taskStartTick = -1L;
+    }
+
+    public void taskComplete(String summary) {
+        long elapsed = taskStartTick < 0L ? 0L : now() - taskStartTick;
+        int minimum = Math.max(0,
+                Baritone.settings().fakePlayerCompletionMessageMinTicks.value);
+        if (elapsed >= minimum) {
+            alert(Event.TASK_COMPLETE, values("task", taskName,
+                    "summary", nonBlank(summary, taskName + "已完成")));
+        }
+        taskStartTick = -1L;
+    }
+
+    public void missingTool(boolean missing, String tool, String fallback) {
+        condition(Event.MISSING_TOOL, missing, values(
+                "tool", nonBlank(tool, "合适工具"),
+                "fallback", nonBlank(fallback, "空手")));
+    }
+
+    public void builderMissingMaterials(boolean missing, String items) {
+        condition(Event.MISSING_MATERIALS, missing,
+                values("items", nonBlank(items, "未识别的建材")));
+    }
+
+    public void noBridgeBlocks(boolean missing) {
+        condition(Event.NO_BRIDGE_BLOCKS, missing, Map.of());
+    }
+
+    public void inventoryBlocked(String task, String reason) {
+        condition(Event.INVENTORY_BLOCKED, true, values(
+                "task", nonBlank(task, taskName),
+                "reason", nonBlank(reason, "没有可用空位")));
+    }
+
+    public void inventoryUnblocked() {
+        condition(Event.INVENTORY_BLOCKED, false, Map.of());
+    }
+
+    public void collectIncomplete(String summary) {
+        alert(Event.COLLECT_INCOMPLETE,
+                values("summary", nonBlank(summary, "未找到全部物品")));
+        taskStartTick = -1L;
+    }
+
+    public void targetUnavailable(String target, String reason) {
+        alert(Event.TARGET_UNAVAILABLE, values(
+                "target", nonBlank(target, "未知目标"),
+                "reason", nonBlank(reason, "离线、跨维度或不可达")));
+        taskStartTick = -1L;
+    }
+
+    private void condition(Event event, boolean present,
+                           Map<String, String> values) {
+        if (!Baritone.settings().fakePlayerPublicMessages.value) {
+            active.put(event, false);
+            return;
+        }
+        boolean previous = active.getOrDefault(event, false);
+        active.put(event, present);
+        if (present && !previous) announce(event, values);
+    }
+
+    private void alert(Event event, Map<String, String> values) {
+        announce(event, values);
+    }
+
+    private void announce(Event event, Map<String, String> values) {
+        if (!Baritone.settings().fakePlayerPublicMessages.value) return;
+        ServerPlayer player = baritone.getPlayerContext().player();
         long now = player.level().getGameTime();
         long cooldown = Math.max(0,
                 Baritone.settings().fakePlayerMessageCooldownTicks.value);
         long previous = lastSent.getOrDefault(event, Long.MIN_VALUE / 2);
         if (now - previous < cooldown) return;
-        String message = templateFor(event);
-        if (message == null || message.isBlank()) return;
-        message = renderTemplate(message, player.getScoreboardName(), food,
-                player.getHealth(), player.getMaxHealth(), threat);
+        String template = templateFor(event);
+        if (template == null || template.isBlank()) return;
+        String message = renderTemplate(template, player, values);
         if (message.isBlank()) return;
         lastSent.put(event, now);
         MinecraftServer server = baritone.getPlayerContext().server();
@@ -107,18 +193,47 @@ public final class FakePlayerStatusMessenger {
         }
     }
 
-    private static String renderTemplate(
-            String template, String player, int food, float health,
-            float maxHealth, EmergencyAvoidanceController.Threat threat) {
-        String rendered = template
-                .replace("{player}", player)
-                .replace("{food}", Integer.toString(food))
-                .replace("{health}", oneDecimal(health))
-                .replace("{max_health}", oneDecimal(maxHealth))
-                .replace("{threat}", threat.name().toLowerCase(Locale.ROOT))
-                .replace('\r', ' ').replace('\n', ' ').trim();
+    static String renderTemplate(String template, ServerPlayer player,
+                                 Map<String, String> supplied) {
+        BlockPos pos = player.blockPosition();
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("player", player.getScoreboardName());
+        values.put("food", Integer.toString(
+                player.getFoodData().getFoodLevel()));
+        values.put("health", oneDecimal(player.getHealth()));
+        values.put("max_health", oneDecimal(player.getMaxHealth()));
+        values.put("x", Integer.toString(pos.getX()));
+        values.put("y", Integer.toString(pos.getY()));
+        values.put("z", Integer.toString(pos.getZ()));
+        values.putAll(supplied);
+        return renderTemplate(template, values);
+    }
+
+    static String renderTemplate(String template, Map<String, String> values) {
+        String rendered = template;
+        for (Map.Entry<String, String> value : values.entrySet()) {
+            rendered = rendered.replace("{" + value.getKey() + "}",
+                    value.getValue());
+        }
+        rendered = rendered.replace('\r', ' ').replace('\n', ' ').trim();
         return rendered.length() <= MAX_MESSAGE_LENGTH ? rendered
                 : rendered.substring(0, MAX_MESSAGE_LENGTH);
+    }
+
+    private static Map<String, String> values(String... pairs) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (int index = 0; index + 1 < pairs.length; index += 2) {
+            result.put(pairs[index], pairs[index + 1]);
+        }
+        return result;
+    }
+
+    private static String nonBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private long now() {
+        return baritone.getPlayerContext().world().getGameTime();
     }
 
     private static String oneDecimal(float value) {
@@ -127,28 +242,37 @@ public final class FakePlayerStatusMessenger {
 
     private static String templateFor(Event event) {
         return switch (event) {
-            case LOW_FOOD -> Baritone.settings().fakePlayerLowFoodMessage.value;
             case NO_FOOD -> Baritone.settings().fakePlayerNoFoodMessage.value;
-            case HURT_FOOD -> Baritone.settings().fakePlayerHurtFoodMessage.value;
-            case TNT -> Baritone.settings().fakePlayerTntMessage.value;
-            case CREEPER -> Baritone.settings().fakePlayerCreeperMessage.value;
-            case COMBAT -> Baritone.settings().fakePlayerCombatMessage.value;
-            case FLEE -> Baritone.settings().fakePlayerFleeMessage.value;
-            case PATH_FAILURE -> Baritone.settings()
-                    .fakePlayerPathFailureMessage.value;
+            case TASK_FAILURE -> Baritone.settings()
+                    .fakePlayerTaskFailureMessage.value;
+            case MISSING_TOOL -> Baritone.settings()
+                    .fakePlayerMissingToolMessage.value;
+            case MISSING_MATERIALS -> Baritone.settings()
+                    .fakePlayerBuilderMissingMaterialsMessage.value;
+            case NO_BRIDGE_BLOCKS -> Baritone.settings()
+                    .fakePlayerNoBridgeBlocksMessage.value;
+            case INVENTORY_BLOCKED -> Baritone.settings()
+                    .fakePlayerInventoryBlockedMessage.value;
+            case COLLECT_INCOMPLETE -> Baritone.settings()
+                    .fakePlayerCollectIncompleteMessage.value;
+            case TARGET_UNAVAILABLE -> Baritone.settings()
+                    .fakePlayerTargetUnavailableMessage.value;
+            case STUCK -> Baritone.settings().fakePlayerStuckMessage.value;
+            case TASK_COMPLETE -> Baritone.settings()
+                    .fakePlayerTaskCompleteMessage.value;
         };
     }
 
-    private void resetEdges() {
-        previousThreat = EmergencyAvoidanceController.Threat.NONE;
-        wasLowFood = false;
-        wasHurtHungry = false;
-        wasOutOfFood = false;
-        wasFinalPathFailure = false;
-    }
-
     enum Event {
-        LOW_FOOD, NO_FOOD, HURT_FOOD, TNT, CREEPER, COMBAT, FLEE,
-        PATH_FAILURE
+        NO_FOOD,
+        TASK_FAILURE,
+        MISSING_TOOL,
+        MISSING_MATERIALS,
+        NO_BRIDGE_BLOCKS,
+        INVENTORY_BLOCKED,
+        COLLECT_INCOMPLETE,
+        TARGET_UNAVAILABLE,
+        STUCK,
+        TASK_COMPLETE
     }
 }
