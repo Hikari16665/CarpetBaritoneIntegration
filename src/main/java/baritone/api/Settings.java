@@ -177,6 +177,11 @@ public final class Settings {
     public final Setting<Double> combatAttackReach = new Setting<>(3.0D);
     public final Setting<Double> combatMinAttackStrength = new Setting<>(0.9D);
     public final Setting<Boolean> combatFleeWithoutWeapon = new Setting<>(true);
+    public final Setting<Boolean> autoEat = new Setting<>(true);
+    public final Setting<Integer> autoEatHungerThreshold = new Setting<>(10);
+    public final Setting<Boolean> autoEatWhenHealthMissing = new Setting<>(true);
+    public final Setting<Boolean> autoEatAvoidHarmfulFoods = new Setting<>(true);
+    public final Setting<Boolean> autoEatAvoidValuableFoods = new Setting<>(true);
     public final Setting<Double> mobSpawnerAvoidanceCoefficient = new Setting<>(2.0D);
     public final Setting<Integer> mobSpawnerAvoidanceRadius = new Setting<>(16);
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5D);
