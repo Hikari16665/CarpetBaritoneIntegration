@@ -1697,10 +1697,14 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private boolean withinReach(BlockPos pos) {
-        return baritone.getPlayerContext().player().getEyePosition()
-                .distanceToSqr(pos.getCenter())
-                <= RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE
-                * RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        // A Builder stance is a block cell, not an exact sub-block player
+        // coordinate. A short movement commonly stops near the edge of that
+        // cell. Comparing the real eye position with the target's center can
+        // then reject a stance that the goal has already accepted, leaving no
+        // possible path because the player is technically already in-goal.
+        // Fake interactions intentionally use distance to the target block's
+        // AABB, so use that same authoritative reach predicate here.
+        return baritone.getFakeInteractionController().canReach(pos);
     }
 
     private void updateApproxPlaceable() {
