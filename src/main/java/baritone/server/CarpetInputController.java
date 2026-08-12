@@ -36,6 +36,7 @@ public final class CarpetInputController implements IInputOverrideHandler {
     private Rotation emergencyRotation;
     private boolean emergencySprint;
     private boolean emergencyJump;
+    private boolean emergencyForward = true;
     private BlockPos blockBreakTarget;
     private BlockPos activeBreakTarget;
     private double blockBreakProgress;
@@ -135,9 +136,16 @@ public final class CarpetInputController implements IInputOverrideHandler {
 
     public void setEmergencyMovement(
             Rotation rotation, boolean sprint, boolean jump) {
+        setPriorityMovement(rotation, true, sprint, jump);
+    }
+
+    public void setPriorityMovement(
+            Rotation rotation, boolean forward, boolean sprint,
+            boolean jump) {
         emergencyMovement = true;
         emergencyRotation = rotation == null ? null
                 : rotation.normalizeAndClamp();
+        emergencyForward = forward;
         emergencySprint = sprint;
         emergencyJump = jump;
         tick();
@@ -149,6 +157,7 @@ public final class CarpetInputController implements IInputOverrideHandler {
         emergencyRotation = null;
         emergencySprint = false;
         emergencyJump = false;
+        emergencyForward = true;
         tick();
     }
 
@@ -159,7 +168,7 @@ public final class CarpetInputController implements IInputOverrideHandler {
     private boolean effective(Input input) {
         if (!emergencyMovement) return isInputForcedDown(input);
         return switch (input) {
-            case MOVE_FORWARD -> true;
+            case MOVE_FORWARD -> emergencyForward;
             case SPRINT -> emergencySprint;
             case JUMP -> emergencyJump;
             case MOVE_BACK, MOVE_LEFT, MOVE_RIGHT, SNEAK -> false;
