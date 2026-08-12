@@ -76,6 +76,8 @@ public final class Baritone implements IBaritone {
 
     private final IPlayerContext playerContext;
     private final CarpetInputController inputController;
+    private final baritone.server.EmergencyAvoidanceController
+            emergencyAvoidanceController;
     private final ServerLookBehavior lookBehavior;
     private final ServerInventoryController inventoryController;
     private final ServerFakeInteractionController fakeInteractionController;
@@ -135,6 +137,8 @@ public final class Baritone implements IBaritone {
     public Baritone(IPlayerContext playerContext) {
         this.playerContext = Objects.requireNonNull(playerContext, "playerContext");
         this.inputController = new CarpetInputController(playerContext.player());
+        this.emergencyAvoidanceController =
+                new baritone.server.EmergencyAvoidanceController(this);
         this.lookBehavior = new ServerLookBehavior(inputController);
         this.inventoryController = new ServerInventoryController(playerContext.player());
         this.inventoryController.bind(this);
@@ -378,6 +382,7 @@ public final class Baritone implements IBaritone {
                         ? giveAllProcess::isProtectedStack
                         : blockTask == null ? stack -> false : blockTask::isDesiredMiningDrop);
         }
+        emergencyAvoidanceController.tick();
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
         fakeInteractionController.serverTick();
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);

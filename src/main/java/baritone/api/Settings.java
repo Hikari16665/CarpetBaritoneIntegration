@@ -165,6 +165,12 @@ public final class Settings {
     public final Setting<Long> slowPathTimeDelayMS = new Setting<>(100L);
     public final Setting<Long> slowPathTimeoutMS = new Setting<>(40000L);
     public final Setting<Boolean> avoidance = new Setting<>(false);
+    public final Setting<Boolean> emergencyAvoidance = new Setting<>(true);
+    public final Setting<Double> tntAvoidanceRadius = new Setting<>(14.0D);
+    public final Setting<Integer> tntPredictionTicks = new Setting<>(20);
+    public final Setting<Double> creeperAvoidanceRadius = new Setting<>(7.0D);
+    public final Setting<Double> creeperCriticalRadius = new Setting<>(4.5D);
+    public final Setting<Boolean> emergencyAvoidanceJump = new Setting<>(true);
     public final Setting<Double> mobSpawnerAvoidanceCoefficient = new Setting<>(2.0D);
     public final Setting<Integer> mobSpawnerAvoidanceRadius = new Setting<>(16);
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5D);
