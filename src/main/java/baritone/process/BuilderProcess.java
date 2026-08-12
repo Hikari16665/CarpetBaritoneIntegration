@@ -113,6 +113,12 @@ public final class BuilderProcess implements IBuilderProcess {
     private final Set<BlockPos> incorrectPositions = new LinkedHashSet<>();
     private final Set<BlockPos> observedCompleted = new HashSet<>();
     private final Set<BlockPos> pathingSupports = new LinkedHashSet<>();
+    /**
+     * Supports removed during the current teardown pass. A cleanup route must
+     * never rebuild one of these positions, otherwise a pillar alternates
+     * forever between Builder's AIR target and Movement's throwaway block.
+     */
+    private final Set<BlockPos> retiredPathingSupports = new HashSet<>();
     private boolean cleaningPathingSupports;
     private final Set<String> unavailableMaterialKeys = new LinkedHashSet<>();
     private Consumer<String> feedback = ignored -> { };
@@ -188,6 +194,7 @@ public final class BuilderProcess implements IBuilderProcess {
         this.incorrectPositions.clear();
         this.observedCompleted.clear();
         this.pathingSupports.clear();
+        this.retiredPathingSupports.clear();
         this.cleaningPathingSupports = false;
         this.missingReported = false;
         this.unavailableMaterialKeys.clear();
@@ -245,6 +252,7 @@ public final class BuilderProcess implements IBuilderProcess {
         updateApproxPlaceable();
         recalcNearby();
         if (!baritone.isPathing()
+                && !cleaningPathingSupports
                 && Baritone.settings().printerContinuousActions.value
                 && Baritone.settings().printerQueueMode.value
                 == PrinterQueueMode.MULTI
@@ -261,10 +269,7 @@ public final class BuilderProcess implements IBuilderProcess {
             return;
         }
         if (target != null && positionComplete(target, desired)) {
-            incorrectPositions.remove(target);
-            observedCompleted.add(target.immutable());
-            target = null;
-            desired = null;
+            completeTarget(target);
         }
         if (target == null) {
             ScanResult scan = findNextIncorrect();
@@ -467,6 +472,7 @@ public final class BuilderProcess implements IBuilderProcess {
                     observedCompleted.remove(worldPos);
                     if (!pathingSupports.contains(worldPos)) {
                         cleaningPathingSupports = false;
+                        retiredPathingSupports.clear();
                     }
                     if (!wanted.isAir()
                             && !canSatisfy(current, wanted)) {
@@ -537,6 +543,7 @@ public final class BuilderProcess implements IBuilderProcess {
         BlockPos best = null;
         BlockState bestDesired = null;
         double bestDistance = Double.POSITIVE_INFINITY;
+        boolean bestIsSupport = false;
         List<BlockPos> nowCorrect = new ArrayList<>();
         for (BlockPos pos : incorrectPositions) {
             if (failedUntil.containsKey(pos)) continue;
@@ -555,14 +562,22 @@ public final class BuilderProcess implements IBuilderProcess {
                 if (loaded && current.isAir()) {
                     nowCorrect.add(pos);
                     pathingSupports.remove(pos);
+                    retiredPathingSupports.add(pos.immutable());
                     continue;
                 }
-                double distance = feet.distSqr(pos);
-                if (distance < bestDistance) {
+                if (!bestIsSupport
+                        || supportCleanupPriority(pos, best, feet) > 0) {
                     best = pos;
                     bestDesired = Blocks.AIR.defaultBlockState();
-                    bestDistance = distance;
+                    bestDistance = feet.distSqr(pos);
+                    bestIsSupport = true;
                 }
+                continue;
+            }
+            if (cleaningPathingSupports && bestIsSupport) {
+                // Cleanup begins only after the schematic scan is complete.
+                // Stale ordinary candidates must not make the selector tear
+                // down a low support before all higher owned access survives.
                 continue;
             }
             if (!schematic.inSchematic(x, y, z, current)) {
@@ -611,6 +626,7 @@ public final class BuilderProcess implements IBuilderProcess {
                 best = pos;
                 bestDesired = wanted;
                 bestDistance = score;
+                bestIsSupport = false;
             }
         }
         incorrectPositions.removeAll(nowCorrect);
@@ -629,7 +645,42 @@ public final class BuilderProcess implements IBuilderProcess {
     public void recordPathingSupport(BlockPos pos) {
         if (!isActive() || pos == null) return;
         pathingSupports.add(pos.immutable());
-        cleaningPathingSupports = false;
+        // A late movement calculated immediately before teardown may still
+        // finish a placement. Keep it owned by the same teardown pass; do not
+        // switch Builder back to construction and rediscover the old target.
+        if (!cleaningPathingSupports) {
+            retiredPathingSupports.remove(pos);
+        }
+    }
+
+    /**
+     * Teardown order is structural rather than merely nearest-first: visit and
+     * consume every high support while the existing bridge can still reach
+     * it, then descend through the lower supports. Distance is only the tie
+     * breaker within one Y level.
+     */
+    static int supportCleanupPriority(
+            BlockPos candidate, BlockPos currentBest, BlockPos feet) {
+        int height = Integer.compare(
+                candidate.getY(), currentBest.getY());
+        if (height != 0) return height;
+        return Double.compare(
+                feet.distSqr(currentBest), feet.distSqr(candidate));
+    }
+
+    private void completeTarget(BlockPos completed) {
+        BlockPos immutable = completed.immutable();
+        incorrectPositions.remove(completed);
+        observedCompleted.add(immutable);
+        if (cleaningPathingSupports
+                && pathingSupports.remove(completed)) {
+            retiredPathingSupports.add(immutable);
+        }
+        target = null;
+        desired = null;
+        publishedGoalTarget = null;
+        publishedApproachGoal = null;
+        publishedTargetChunkLoaded = false;
     }
 
     /**
@@ -1008,6 +1059,8 @@ public final class BuilderProcess implements IBuilderProcess {
             if (failedUntil.containsKey(pos)) continue;
             if (pathingSupports.contains(pos)
                     && !cleaningPathingSupports) continue;
+            if (cleaningPathingSupports
+                    && !pathingSupports.contains(pos)) continue;
             if (nearest.size() < maximum) {
                 nearest.add(pos);
             } else if (feet.distSqr(pos)
@@ -1051,6 +1104,8 @@ public final class BuilderProcess implements IBuilderProcess {
         private final List<BlockState> placeable;
         private final ISchematic buildSchematic;
         private final BlockPos buildOrigin;
+        private final boolean supportCleanup;
+        private final Set<BlockPos> retiredSupports;
 
         private BuilderCalculationContext(
                 baritone.api.pathing.goals.Goal goal) {
@@ -1058,6 +1113,8 @@ public final class BuilderProcess implements IBuilderProcess {
             this.placeable = List.copyOf(approxPlaceable);
             this.buildSchematic = schematic;
             this.buildOrigin = origin;
+            this.supportCleanup = cleaningPathingSupports;
+            this.retiredSupports = Set.copyOf(retiredPathingSupports);
             this.jumpPenalty += 10D;
             this.backtrackCostFavoringCoefficient = 1D;
         }
@@ -1080,6 +1137,12 @@ public final class BuilderProcess implements IBuilderProcess {
                 int x, int y, int z, BlockState current) {
             if (isPossiblyProtected(x, y, z)
                     || !worldBorder.canPlaceAt(x, z)) {
+                return COST_INF;
+            }
+            if (retiredSupports.contains(new BlockPos(x, y, z))) {
+                // Cleanup may extend the still-owned bridge to reach another
+                // high support, but a position already consumed by teardown
+                // can never become path material again.
                 return COST_INF;
             }
             BlockState wanted = schematicAt(x, y, z, current);
@@ -1113,6 +1176,11 @@ public final class BuilderProcess implements IBuilderProcess {
             BlockState wanted = schematicAt(x, y, z, current);
             if (wanted != null && !wanted.isAir()
                     && sameEnough(current, wanted)) {
+                if (supportCleanup) {
+                    // A cleanup path may walk on the finished schematic, but
+                    // must never tunnel through it to reach a bridge block.
+                    return COST_INF;
+                }
                 return Baritone.settings()
                         .breakCorrectBlockPenaltyMultiplier.value;
             }
@@ -1143,6 +1211,7 @@ public final class BuilderProcess implements IBuilderProcess {
         incorrectPositions.clear();
         observedCompleted.clear();
         pathingSupports.clear();
+        retiredPathingSupports.clear();
         cleaningPathingSupports = false;
         if (!Baritone.settings().buildRepeatSneaky.value) {
             schematic.reset();
@@ -2123,6 +2192,18 @@ public final class BuilderProcess implements IBuilderProcess {
             return new PathingCommand(
                     null, PathingCommandType.REQUEST_PAUSE);
         }
+        if (target != null && baritone.getFakeInteractionController()
+                .isBreakingBlock(target)) {
+            /*
+             * Fake interaction has already proved that this target is in
+             * reach and visible, and vanilla break progress is accumulating.
+             * Publishing an interaction-stance goal at the same time can ask
+             * Movement to pillar one block higher, which both interrupts the
+             * transaction and recreates the support being torn down.
+             */
+            return new PathingCommand(
+                    null, PathingCommandType.REQUEST_PAUSE);
+        }
         Goal goal = materialRecovery.isActive()
                 ? materialRecovery.goal()
                 : publishedApproachGoal();
@@ -2157,6 +2238,7 @@ public final class BuilderProcess implements IBuilderProcess {
         incorrectPositions.clear();
         observedCompleted.clear();
         pathingSupports.clear();
+        retiredPathingSupports.clear();
         cleaningPathingSupports = false;
         unavailableMaterialKeys.clear();
         approxPlaceable = Collections.emptyList();
