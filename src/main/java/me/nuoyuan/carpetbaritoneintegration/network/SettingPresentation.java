@@ -170,6 +170,12 @@ final class SettingPresentation {
             case "rightClickSpeed" -> "连续放置操作速度";
             case "costHeuristic" -> "A* 启发式权重";
             case "avoidance" -> "启用危险生物路径规避";
+            case "emergencyAvoidance" -> "启用爆炸物紧急躲避";
+            case "tntAvoidanceRadius" -> "TNT 紧急躲避半径";
+            case "tntPredictionTicks" -> "TNT 轨迹预测刻数";
+            case "creeperAvoidanceRadius" -> "苦力怕躲避半径";
+            case "creeperCriticalRadius" -> "苦力怕紧急距离";
+            case "emergencyAvoidanceJump" -> "紧急躲避时允许跳跃";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "blocksToAvoid" -> "寻路应避开的方块";
