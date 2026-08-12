@@ -40,7 +40,9 @@ final class ClientControlOptions {
         waypoints = payload.waypoints();
         received = true;
         Minecraft client = Minecraft.getInstance();
-        if (client.screen instanceof CommandParameterScreen screen) {
+        if (client.screen instanceof BaritoneControlScreen screen) {
+            screen.optionsUpdated();
+        } else if (client.screen instanceof CommandParameterScreen screen) {
             screen.optionsUpdated();
         } else if (client.screen instanceof SettingsListScreen screen) {
             screen.optionsUpdated();
