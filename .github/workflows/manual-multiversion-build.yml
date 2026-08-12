@@ -65,9 +65,15 @@ jobs:
             sed -n 's/^mod_version[[:space:]]*=[[:space:]]*//p' \
               gradle.properties | head -n 1 | tr -d '\r'
           )"
+          mod_version_date="$(
+            sed -n 's/^mod_version_date[[:space:]]*=[[:space:]]*//p' \
+              gradle.properties | head -n 1 | tr -d '\r'
+          )"
 
           test -n "$minecraft_version"
-          test -n "$mod_version"
+          [[ "$mod_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          [[ "$mod_version_date" =~ ^[0-9]{6}$ ]]
+          release_version="v${mod_version}+${mod_version_date}"
 
           case "$minecraft_version" in
             1.21.*) java_version=21 ;;
@@ -82,7 +88,7 @@ jobs:
           safe_branch="${safe_branch//\//-}"
 
           echo "minecraft=$minecraft_version" >> "$GITHUB_OUTPUT"
-          echo "mod=$mod_version" >> "$GITHUB_OUTPUT"
+          echo "mod=$release_version" >> "$GITHUB_OUTPUT"
           echo "java=$java_version" >> "$GITHUB_OUTPUT"
           echo "branch=$safe_branch" >> "$GITHUB_OUTPUT"
 
@@ -109,25 +115,19 @@ jobs:
           MOD_VERSION: ${{ steps.versions.outputs.mod }}
           SOURCE_BRANCH: ${{ steps.versions.outputs.branch }}
         run: |
-          mapfile -t jars < <(
-            find build/libs -maxdepth 1 -type f -name '*.jar' \
-              ! -name '*-sources.jar' \
-              ! -name '*-dev.jar' \
-              ! -name '*-javadoc.jar' \
-              | sort
-          )
-
-          if (( ${#jars[@]} != 1 )); then
-            echo "::error::Expected exactly one distributable JAR, found ${#jars[@]}."
-            printf '%s\n' "${jars[@]}"
+          output="carpetbaritoneintegration-${MOD_VERSION}.jar"
+          source="build/libs/$output"
+          if [[ ! -f "$source" ]]; then
+            echo "::error::Expected distributable JAR $source was not produced."
+            find build/libs -maxdepth 1 -type f -name '*.jar' -print
             exit 1
           fi
 
-          mkdir -p staged
-          output="carpetbaritoneintegration-mc-${MINECRAFT_VERSION}-mod-${MOD_VERSION}.jar"
-          cp "${jars[0]}" "staged/$output"
+          mkdir -p "staged/$MINECRAFT_VERSION"
+          cp "$source" "staged/$MINECRAFT_VERSION/$output"
           printf '%s\t%s\t%s\t%s\n' \
-            "$MINECRAFT_VERSION" "$MOD_VERSION" "$SOURCE_BRANCH" "$output" \
+            "$MINECRAFT_VERSION" "$MOD_VERSION" "$SOURCE_BRANCH" \
+            "$MINECRAFT_VERSION/$output" \
             > staged/build-info.tsv
 
       - name: Upload branch result
@@ -154,9 +154,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p bundle
-          find collected -type f -name '*.jar' -exec cp '{}' bundle/ ';'
+          while IFS= read -r jar; do
+            minecraft_version="$(basename "$(dirname "$jar")")"
+            mkdir -p "bundle/$minecraft_version"
+            cp "$jar" "bundle/$minecraft_version/$(basename "$jar")"
+          done < <(find collected -type f -name '*.jar' | sort)
 
-          jar_count="$(find bundle -maxdepth 1 -type f -name '*.jar' | wc -l)"
+          jar_count="$(find bundle -type f -name '*.jar' | wc -l)"
           if (( jar_count == 0 )); then
             echo "::error::No built JARs were downloaded."
             exit 1
