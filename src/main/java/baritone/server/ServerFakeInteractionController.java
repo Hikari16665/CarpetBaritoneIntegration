@@ -38,6 +38,7 @@ import net.minecraft.world.phys.HitResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -184,6 +185,38 @@ public final class ServerFakeInteractionController {
     }
 
     /**
+     * Returns a visible block that currently occludes a pathing break target.
+     * This lets the movement layer clear a newly introduced foreground block
+     * or reject a stale path immediately instead of waiting for its timeout.
+     */
+    public Optional<BlockPos> visibleBreakObstruction(BlockPos target) {
+        if (!canReach(target)) return Optional.empty();
+        Vec3 eye = player.getEyePosition();
+        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
+        BlockPos nearest = null;
+        double nearestDistance = Double.POSITIVE_INFINITY;
+        for (Vec3 sample : breakSamples(target)) {
+            if (eye.distanceToSqr(sample) > reach * reach) continue;
+            HitResult hit = player.level().clip(new ClipContext(
+                    eye, sample, ClipContext.Block.OUTLINE,
+                    ClipContext.Fluid.NONE, player));
+            if (!(hit instanceof BlockHitResult blockHit)
+                    || hit.getType() != HitResult.Type.BLOCK
+                    || blockHit.getBlockPos().equals(target)) {
+                continue;
+            }
+            BlockPos blocker = blockHit.getBlockPos();
+            double distance = eye.distanceToSqr(blockHit.getLocation());
+            if (distance < nearestDistance && canReach(blocker)
+                    && canBreakFromHere(blocker)) {
+                nearest = blocker.immutable();
+                nearestDistance = distance;
+            }
+        }
+        return Optional.ofNullable(nearest);
+    }
+
+    /**
      * Lets a process preserve the target of an in-progress survival break.
      * Switching targets is intentionally equivalent to releasing and pressing
      * attack on another block, so callers must not rotate a timed transaction.
@@ -194,17 +227,8 @@ public final class ServerFakeInteractionController {
 
     private Vec3 findVisibleBreakPoint(BlockPos pos) {
         Vec3 eye = player.getEyePosition();
-        Vec3[] samples = {
-                pos.getCenter(),
-                pos.getCenter().add(0.499D, 0D, 0D),
-                pos.getCenter().add(-0.499D, 0D, 0D),
-                pos.getCenter().add(0D, 0.499D, 0D),
-                pos.getCenter().add(0D, -0.499D, 0D),
-                pos.getCenter().add(0D, 0D, 0.499D),
-                pos.getCenter().add(0D, 0D, -0.499D)
-        };
-        double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
-        for (Vec3 sample : samples) {
+        for (Vec3 sample : breakSamples(pos)) {
+            double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
             if (eye.distanceToSqr(sample) > reach * reach) continue;
             HitResult hit = player.level().clip(new ClipContext(
                     eye, sample, ClipContext.Block.OUTLINE,
@@ -222,6 +246,19 @@ public final class ServerFakeInteractionController {
             }
         }
         return null;
+    }
+
+    private static Vec3[] breakSamples(BlockPos pos) {
+        Vec3 center = pos.getCenter();
+        return new Vec3[] {
+                center,
+                center.add(0.499D, 0D, 0D),
+                center.add(-0.499D, 0D, 0D),
+                center.add(0D, 0.499D, 0D),
+                center.add(0D, -0.499D, 0D),
+                center.add(0D, 0D, 0.499D),
+                center.add(0D, 0D, -0.499D)
+        };
     }
 
     private BlockPos rayHitPosition(BlockPos pos) {
@@ -537,6 +574,7 @@ public final class ServerFakeInteractionController {
             player.inventoryMenu.broadcastChanges();
             if (result.consumesAction()) {
                 record(target);
+                invalidatePathingSnapshot(target);
             }
             return result.consumesAction();
         }
@@ -562,6 +600,13 @@ public final class ServerFakeInteractionController {
                 lastActionAt.entrySet().removeIf(entry ->
                         tick - entry.getValue() > 200L);
             }
+        }
+    }
+
+    private void invalidatePathingSnapshot(BlockPos pos) {
+        if (player.level() instanceof ServerLevel level) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    pos.getX() >> 4, pos.getZ() >> 4);
         }
     }
 

@@ -239,20 +239,21 @@ public final class BuilderProcess implements IBuilderProcess {
         if (paused) return;
         updateApproxPlaceable();
         recalcNearby();
-        if (baritone.getPathExecutor() == null
+        if (!baritone.isPathing()
                 && Baritone.settings().printerContinuousActions.value
                 && Baritone.settings().printerQueueMode.value
                 == PrinterQueueMode.MULTI
                 && runPrinterPlacementBatch()) {
             return;
         }
-        if (baritone.getPathExecutor() != null) {
-            if (!baritone.getPathExecutor().isSafeToCancel()
-                    || !baritone.getPlayerContext().player().onGround()
-                    || !selectImmediateIncorrect()) {
-                return;
-            }
-            baritone.cancelPath();
+        if (baritone.isPathing()) {
+            // Never construct while travelling through the schematic. The
+            // old immediate-action pass could place walls around the player
+            // before it reached its selected stance, trapping it inside the
+            // building and invalidating the remaining path. This includes an
+            // asynchronous calculation: its immutable world snapshot is just
+            // as invalid if Printer changes blocks before an executor exists.
+            return;
         }
         if (target != null && positionComplete(target, desired)) {
             incorrectPositions.remove(target);
