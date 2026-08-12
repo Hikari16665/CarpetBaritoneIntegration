@@ -115,19 +115,19 @@ jobs:
           MOD_VERSION: ${{ steps.versions.outputs.mod }}
           SOURCE_BRANCH: ${{ steps.versions.outputs.branch }}
         run: |
-          output="carpetbaritoneintegration-${MOD_VERSION}.jar"
-          source="build/libs/$output"
+          source_name="carpetbaritoneintegration-${MOD_VERSION}.jar"
+          source="build/libs/$source_name"
           if [[ ! -f "$source" ]]; then
             echo "::error::Expected distributable JAR $source was not produced."
             find build/libs -maxdepth 1 -type f -name '*.jar' -print
             exit 1
           fi
 
-          mkdir -p "staged/$MINECRAFT_VERSION"
-          cp "$source" "staged/$MINECRAFT_VERSION/$output"
+          mkdir -p staged
+          output="carpetbaritoneintegration-mc-${MINECRAFT_VERSION}-${MOD_VERSION}.jar"
+          cp "$source" "staged/$output"
           printf '%s\t%s\t%s\t%s\n' \
-            "$MINECRAFT_VERSION" "$MOD_VERSION" "$SOURCE_BRANCH" \
-            "$MINECRAFT_VERSION/$output" \
+            "$MINECRAFT_VERSION" "$MOD_VERSION" "$SOURCE_BRANCH" "$output" \
             > staged/build-info.tsv
 
       - name: Upload branch result
@@ -154,13 +154,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p bundle
-          while IFS= read -r jar; do
-            minecraft_version="$(basename "$(dirname "$jar")")"
-            mkdir -p "bundle/$minecraft_version"
-            cp "$jar" "bundle/$minecraft_version/$(basename "$jar")"
-          done < <(find collected -type f -name '*.jar' | sort)
+          find collected -type f -name '*.jar' -exec cp '{}' bundle/ ';'
 
-          jar_count="$(find bundle -type f -name '*.jar' | wc -l)"
+          jar_count="$(find bundle -maxdepth 1 -type f -name '*.jar' | wc -l)"
           if (( jar_count == 0 )); then
             echo "::error::No built JARs were downloaded."
             exit 1
