@@ -245,7 +245,7 @@ public final class ServerInventoryController {
             bestIndex = 0;
         }
         if (bestIndex >= 0 && bestIndex < 9) {
-            player.getInventory().setSelectedSlot(bestIndex);
+            player.getInventory().selected = bestIndex;
         }
         if (baritone != null) {
             ItemStack selected = player.getMainHandItem();
