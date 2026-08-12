@@ -26,11 +26,11 @@ public final class EmergencyAvoidanceController {
     }
 
     public void tick() {
+        ServerPlayer player = baritone.getPlayerContext().player();
         if (!Baritone.settings().emergencyAvoidance.value) {
-            clear();
+            tickHostileResponse(player);
             return;
         }
-        ServerPlayer player = baritone.getPlayerContext().player();
         double tntRadius = Math.max(1.0D,
                 Baritone.settings().tntAvoidanceRadius.value);
         double creeperRadius = Math.max(1.0D,
@@ -86,7 +86,7 @@ public final class EmergencyAvoidanceController {
         }
 
         if (strongest == Threat.NONE || escape.lengthSqr() < 0.0001D) {
-            tickHostileResponse(player, scan);
+            tickHostileResponse(player);
             return;
         }
         Vec3 direction = escape.normalize();
@@ -98,7 +98,7 @@ public final class EmergencyAvoidanceController {
         activeThreat = strongest;
     }
 
-    private void tickHostileResponse(ServerPlayer player, AABB scan) {
+    private void tickHostileResponse(ServerPlayer player) {
         if (!Baritone.settings().autoCombat.value) {
             clear();
             return;
