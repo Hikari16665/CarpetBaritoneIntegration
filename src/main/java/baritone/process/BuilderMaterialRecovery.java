@@ -3,6 +3,8 @@ package baritone.process;
 import baritone.Baritone;
 import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.pathing.goals.Goal;
+import baritone.api.pathing.goals.GoalNear;
+import baritone.api.selection.ISelection;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;
@@ -28,6 +30,8 @@ import java.util.function.Predicate;
  * retained while approaching them; contents are read again on every use.
  */
 final class BuilderMaterialRecovery {
+    private static final long MAX_SORTED_SELECTION_CHUNKS = 262_144L;
+
     enum Result { IDLE, WORKING, ACQUIRED, EXHAUSTED }
 
     private final Baritone baritone;
@@ -37,7 +41,23 @@ final class BuilderMaterialRecovery {
     private BlockPos origin;
     private List<ChunkOffset> order = List.of();
     private int cursor;
+    private boolean selectionSearch;
+    private BlockPos selectionMin;
+    private BlockPos selectionMax;
+    private int centerChunkX;
+    private int centerChunkZ;
+    private int minChunkX;
+    private int maxChunkX;
+    private int minChunkZ;
+    private int maxChunkZ;
+    private long rectangularCursor;
+    private long rectangularChunkCount;
     private BlockPos target;
+    private int targetFailures;
+    private BlockPos scanProbe;
+    private int probeChunkX;
+    private int probeChunkZ;
+    private int probeFailures;
 
     BuilderMaterialRecovery(Baritone baritone) {
         this.baritone = baritone;
@@ -52,11 +72,21 @@ final class BuilderMaterialRecovery {
     }
 
     Goal goal() {
-        return target == null ? null : new GoalGetToBlock(target);
+        if (target != null) return new GoalGetToBlock(target);
+        return scanProbe == null ? null : new GoalNear(scanProbe, 8);
     }
 
     void pathFailed() {
-        target = null;
+        if (target != null) {
+            if (++targetFailures >= Math.max(1, Baritone.settings()
+                    .pathingFailureRetryCount.value)) {
+                target = null;
+            }
+        } else if (scanProbe != null
+                && ++probeFailures >= Math.max(1, Baritone.settings()
+                        .pathingFailureRetryCount.value)) {
+            scanProbe = null;
+        }
     }
 
     void request(Item item) {
@@ -72,7 +102,26 @@ final class BuilderMaterialRecovery {
         requested = matcher;
         origin = baritone.getPlayerContext().playerFeet().immutable();
         target = null;
+        targetFailures = 0;
+        scanProbe = null;
+        probeFailures = 0;
         cursor = 0;
+        rectangularCursor = 0L;
+        ISelection selection = baritone.getSelectionManager()
+                .getOnlySelection();
+        if (selection != null) {
+            configureSelection(selection);
+            if (Baritone.settings().diagnosticLogging.value) {
+                System.out.println("[CBI-DIAG] builder-refill key="
+                        + requestedKey + " selection=" + selectionMin
+                        + ".." + selectionMax + " chunks="
+                        + rectangularChunkCount);
+            }
+            return;
+        }
+        selectionSearch = false;
+        selectionMin = null;
+        selectionMax = null;
         int blocks = Math.max(1,
                 Baritone.settings().printerContainerSearchRange.value);
         int radius = (blocks + 15) / 16;
@@ -94,44 +143,168 @@ final class BuilderMaterialRecovery {
         requestedKey = null;
         requested = ignored -> false;
         target = null;
+        targetFailures = 0;
+        scanProbe = null;
+        probeFailures = 0;
         order = List.of();
         cursor = 0;
+        selectionSearch = false;
+        selectionMin = null;
+        selectionMax = null;
+        rectangularCursor = 0L;
+        rectangularChunkCount = 0L;
     }
 
     Result tick() {
         if (requestedKey == null) return Result.IDLE;
         if (target != null) return approachOrTake();
-        int budget = Math.max(1, Baritone.settings()
-                .printerContainerScanChunksPerTick.value);
-        int centerX = origin.getX() >> 4;
-        int centerZ = origin.getZ() >> 4;
-        int range = Math.max(1,
-                Baritone.settings().printerContainerSearchRange.value);
-        while (cursor < order.size() && budget-- > 0) {
-            ChunkOffset offset = order.get(cursor++);
-            LevelChunk chunk = baritone.getPlayerContext().world()
+        if (scanProbe != null) {
+            LevelChunk loaded = baritone.getPlayerContext().world()
                     .getChunkSource().getChunkNow(
-                            centerX + offset.x, centerZ + offset.z);
-            if (chunk == null) continue;
-            target = chunk.getBlockEntities().entrySet().stream()
-                    .filter(entry -> origin.distSqr(entry.getKey())
-                            <= (double) range * range)
-                    .filter(entry -> count(
-                            supported(entry.getValue())) > 0)
-                    .map(entry -> entry.getKey().immutable())
-                    .min(Comparator.comparingDouble(origin::distSqr))
-                    .orElse(null);
+                            probeChunkX, probeChunkZ);
+            if (loaded == null) return Result.WORKING;
+            scanProbe = null;
+            probeFailures = 0;
+            target = findTarget(loaded);
+            targetFailures = 0;
             if (target != null) return approachOrTake();
         }
-        return cursor >= order.size()
+        int budget = Math.max(1, Baritone.settings()
+                .printerContainerScanChunksPerTick.value);
+        while (!scanExhausted() && budget-- > 0) {
+            ChunkOffset offset = nextChunk();
+            if (offset == null) break;
+            LevelChunk chunk = baritone.getPlayerContext().world()
+                    .getChunkSource().getChunkNow(
+                            offset.x, offset.z);
+            if (chunk == null) {
+                if (selectionSearch) {
+                    probeChunkX = offset.x;
+                    probeChunkZ = offset.z;
+                    scanProbe = selectionProbe(offset.x, offset.z);
+                    probeFailures = 0;
+                    return Result.WORKING;
+                }
+                continue;
+            }
+            target = findTarget(chunk);
+            targetFailures = 0;
+            if (target != null) return approachOrTake();
+        }
+        return scanExhausted()
                 ? Result.EXHAUSTED : Result.WORKING;
+    }
+
+    private void configureSelection(ISelection selection) {
+        selectionSearch = true;
+        selectionMin = selection.min().immutable();
+        selectionMax = selection.max().immutable();
+        minChunkX = selectionMin.getX() >> 4;
+        maxChunkX = selectionMax.getX() >> 4;
+        minChunkZ = selectionMin.getZ() >> 4;
+        maxChunkZ = selectionMax.getZ() >> 4;
+        centerChunkX = clamp(origin.getX() >> 4, minChunkX, maxChunkX);
+        centerChunkZ = clamp(origin.getZ() >> 4, minChunkZ, maxChunkZ);
+        long width = (long) maxChunkX - minChunkX + 1L;
+        long length = (long) maxChunkZ - minChunkZ + 1L;
+        rectangularChunkCount = saturatedMultiply(width, length);
+        if (rectangularChunkCount > MAX_SORTED_SELECTION_CHUNKS) {
+            order = List.of();
+            return;
+        }
+        List<ChunkOffset> chunks = new ArrayList<>(
+                (int) rectangularChunkCount);
+        for (int x = minChunkX; x <= maxChunkX; x++) {
+            for (int z = minChunkZ; z <= maxChunkZ; z++) {
+                chunks.add(new ChunkOffset(x, z));
+            }
+        }
+        chunks.sort(Comparator.comparingLong(chunk ->
+                squaredDistance(chunk.x, chunk.z,
+                        centerChunkX, centerChunkZ)));
+        order = List.copyOf(chunks);
+    }
+
+    private ChunkOffset nextChunk() {
+        if (!selectionSearch || !order.isEmpty()) {
+            if (cursor >= order.size()) return null;
+            ChunkOffset next = order.get(cursor++);
+            if (selectionSearch) return next;
+            return new ChunkOffset(
+                    (origin.getX() >> 4) + next.x,
+                    (origin.getZ() >> 4) + next.z);
+        }
+        if (rectangularCursor >= rectangularChunkCount) return null;
+        long width = (long) maxChunkX - minChunkX + 1L;
+        long index = rectangularCursor++;
+        return new ChunkOffset(
+                minChunkX + (int) (index % width),
+                minChunkZ + (int) (index / width));
+    }
+
+    private boolean scanExhausted() {
+        if (!selectionSearch || !order.isEmpty()) {
+            return cursor >= order.size();
+        }
+        return rectangularCursor >= rectangularChunkCount;
+    }
+
+    private BlockPos findTarget(LevelChunk chunk) {
+        int range = Math.max(1,
+                Baritone.settings().printerContainerSearchRange.value);
+        return chunk.getBlockEntities().entrySet().stream()
+                .filter(entry -> selectionSearch
+                        ? insideSelection(entry.getKey(),
+                                selectionMin, selectionMax)
+                        : origin.distSqr(entry.getKey())
+                                <= (double) range * range)
+                .filter(entry -> count(
+                        supported(entry.getValue())) > 0)
+                .map(entry -> entry.getKey().immutable())
+                .min(Comparator.comparingDouble(origin::distSqr))
+                .orElse(null);
+    }
+
+    private BlockPos selectionProbe(int chunkX, int chunkZ) {
+        int x = clamp((chunkX << 4) + 8,
+                selectionMin.getX(), selectionMax.getX());
+        int z = clamp((chunkZ << 4) + 8,
+                selectionMin.getZ(), selectionMax.getZ());
+        int y = clamp(origin.getY(),
+                selectionMin.getY(), selectionMax.getY());
+        return new BlockPos(x, y, z);
+    }
+
+    static boolean insideSelection(
+            BlockPos pos, BlockPos min, BlockPos max) {
+        return pos.getX() >= min.getX() && pos.getX() <= max.getX()
+                && pos.getY() >= min.getY() && pos.getY() <= max.getY()
+                && pos.getZ() >= min.getZ() && pos.getZ() <= max.getZ();
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static long saturatedMultiply(long left, long right) {
+        if (left <= 0L || right <= 0L) return 0L;
+        if (left > Long.MAX_VALUE / right) return Long.MAX_VALUE;
+        return left * right;
+    }
+
+    private static long squaredDistance(
+            int x, int z, int centerX, int centerZ) {
+        long dx = (long) x - centerX;
+        long dz = (long) z - centerZ;
+        return dx * dx + dz * dz;
     }
 
     private Result approachOrTake() {
         Container container = containerAt(target);
         if (container == null || count(container) <= 0) {
             target = null;
-            return cursor >= order.size()
+            targetFailures = 0;
+            return scanExhausted()
                     ? Result.EXHAUSTED : Result.WORKING;
         }
         if (!baritone.getFakeInteractionController().canReach(target)) {
@@ -143,11 +316,12 @@ final class BuilderMaterialRecovery {
         int acquired = take(container, Math.max(1,
                 Baritone.settings().printerContainerRefillBatch.value));
         target = null;
+        targetFailures = 0;
         if (acquired > 0) {
             clear();
             return Result.ACQUIRED;
         }
-        return cursor >= order.size()
+        return scanExhausted()
                 ? Result.EXHAUSTED : Result.WORKING;
     }
 
