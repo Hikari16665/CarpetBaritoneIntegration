@@ -3,7 +3,17 @@ plugins {
     id 'maven-publish'
 }
 
-version = project.mod_version
+def modVersion = project.mod_version.toString()
+def modVersionDate = project.mod_version_date.toString()
+
+if (!(modVersion ==~ /\d+\.\d+(?:\.\d+)?/)) {
+    throw new GradleException("mod_version must use a numeric version such as 1.4")
+}
+if (!(modVersionDate ==~ /\d{6}/)) {
+    throw new GradleException("mod_version_date must use YYMMDD, for example 260812")
+}
+
+version = "v${modVersion}+${modVersionDate}"
 group = project.maven_group
 
 base {
