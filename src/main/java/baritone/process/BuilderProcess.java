@@ -21,6 +21,7 @@ import baritone.api.schematic.SubstituteSchematic;
 import baritone.api.schematic.IStaticSchematic;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
+import baritone.api.utils.interfaces.IGoalRenderPos;
 import baritone.api.utils.input.Input;
 import baritone.pathing.movement.MovementHelper;
 import baritone.pathing.movement.CalculationContext;
@@ -50,6 +51,10 @@ import net.minecraft.world.level.block.WallSkullBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -2350,6 +2355,63 @@ public final class BuilderProcess implements IBuilderProcess {
         @Override
         public int hashCode() {
             return Objects.hash(primary, fallback);
+        }
+    }
+
+    /** Exact, world-validated player-feet positions for one build target. */
+    public static final class GoalBuilderStance
+            implements Goal, IGoalRenderPos {
+        private final BlockPos target;
+        private final Set<BlockPos> stances;
+
+        public GoalBuilderStance(
+                BlockPos target, List<BlockPos> stances) {
+            this.target = target.immutable();
+            this.stances = Set.copyOf(stances);
+            if (this.stances.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Builder stance goal requires a stance");
+            }
+        }
+
+        @Override
+        public boolean isInGoal(int x, int y, int z) {
+            return stances.contains(new BlockPos(x, y, z));
+        }
+
+        @Override
+        public double heuristic(int x, int y, int z) {
+            double best = Double.POSITIVE_INFINITY;
+            for (BlockPos stance : stances) {
+                best = Math.min(best, GoalBlock.calculate(
+                        x - stance.getX(), y - stance.getY(),
+                        z - stance.getZ()));
+            }
+            return best;
+        }
+
+        @Override
+        public BlockPos getGoalPos() {
+            return target;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof GoalBuilderStance that)) return false;
+            return target.equals(that.target)
+                    && stances.equals(that.stances);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(target, stances);
+        }
+
+        @Override
+        public String toString() {
+            return "GoalBuilderStance{target=" + target
+                    + ", stances=" + stances.size() + "}";
         }
     }
 
