@@ -67,7 +67,11 @@ public final class ServerFakeInteractionController {
 
     public boolean canReach(BlockPos pos) {
         double reach = RotationUtils.DEFAULT_BLOCK_REACH_DISTANCE;
-        Vec3 eye = player.getEyePosition();
+        return distanceToBlockAabbSqr(player.getEyePosition(), pos)
+                <= reach * reach;
+    }
+
+    static double distanceToBlockAabbSqr(Vec3 eye, BlockPos pos) {
         double closestX = Math.max(pos.getX(),
                 Math.min(eye.x, pos.getX() + 1.0D));
         double closestY = Math.max(pos.getY(),
@@ -77,7 +81,7 @@ public final class ServerFakeInteractionController {
         double dx = eye.x - closestX;
         double dy = eye.y - closestY;
         double dz = eye.z - closestZ;
-        return dx * dx + dy * dy + dz * dz <= reach * reach;
+        return dx * dx + dy * dy + dz * dz;
     }
 
     public void lookAt(BlockPos pos) {
