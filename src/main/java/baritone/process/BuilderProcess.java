@@ -310,7 +310,17 @@ public final class BuilderProcess implements IBuilderProcess {
                 target = null;
                 desired = null;
             }
-            if (!selectImmediateIncorrect()) return acted;
+            // Breaking is a multi-tick transaction. Re-running the nearest
+            // candidate selection here can alternate between equally distant
+            // blocks (incorrectPositions is deliberately unordered), and the
+            // interaction controller must reset vanilla break progress every
+            // time the target changes. Keep the block whose break animation
+            // has already started pinned until it completes or is rejected.
+            boolean continuingTimedBreak = target != null
+                    && baritone.getFakeInteractionController()
+                            .isBreakingBlock(target);
+            if (!continuingTimedBreak
+                    && !selectImmediateIncorrect()) return acted;
             BlockState current = baritone.getPlayerContext().world()
                     .getBlockState(target);
             if (current.isAir() && tryPortalIgnition()) {
