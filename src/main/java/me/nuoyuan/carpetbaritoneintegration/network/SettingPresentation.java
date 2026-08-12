@@ -182,6 +182,11 @@ final class SettingPresentation {
             case "combatAttackReach" -> "自动战斗攻击距离";
             case "combatMinAttackStrength" -> "自动攻击最小蓄力比例";
             case "combatFleeWithoutWeapon" -> "无武器时逃离敌怪";
+            case "autoEat" -> "自动进食";
+            case "autoEatHungerThreshold" -> "自动进食饥饿阈值";
+            case "autoEatWhenHealthMissing" -> "受伤且未吃饱时进食";
+            case "autoEatAvoidHarmfulFoods" -> "自动进食避开有害食物";
+            case "autoEatAvoidValuableFoods" -> "自动进食保留贵重食物";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "blocksToAvoid" -> "寻路应避开的方块";
