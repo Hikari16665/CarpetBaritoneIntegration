@@ -293,7 +293,8 @@ public final class Baritone implements IBaritone {
                 || customGoalProcess.suppressesTrashDiscard();
         if (pathExecutor != null && !suppressTrashDiscard) {
             trashDiscardController.observe(
-                    pathExecutor.toBreak(), protectedDropOrigin, protectedDrop);
+                    pathExecutor.toBreak(), pathExecutor.toPlace(),
+                    protectedDropOrigin, protectedDrop);
             backfillProcess.observe(pathExecutor.toBreak(), protectedDropOrigin);
         }
         if (pathExecutor == null && pathRecalcPending
