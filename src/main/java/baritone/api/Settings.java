@@ -385,16 +385,48 @@ public final class Settings {
     public final Setting<Double> avoidBreakingMultiplier = new Setting<>(0.1D);
 
     public static final class Setting<T> {
-        public final T defaultValue;
+        public final T factoryDefaultValue;
+        public T defaultValue;
         public T value;
 
         public Setting(T defaultValue) {
-            this.defaultValue = defaultValue;
-            this.value = defaultValue;
+            this.factoryDefaultValue = copy(defaultValue);
+            this.defaultValue = copy(defaultValue);
+            this.value = copy(defaultValue);
         }
 
         public void reset() {
-            this.value = this.defaultValue;
+            this.value = copy(this.defaultValue);
+        }
+
+        public void setDefault(T value, boolean applyNow) {
+            this.defaultValue = copy(value);
+            if (applyNow) reset();
+        }
+
+        public void restoreFactoryDefault(boolean applyNow) {
+            this.defaultValue = copy(this.factoryDefaultValue);
+            if (applyNow) reset();
+        }
+
+        public boolean hasCustomDefault() {
+            return !java.util.Objects.equals(
+                    this.defaultValue, this.factoryDefaultValue);
+        }
+
+        @SuppressWarnings("unchecked")
+        private static <T> T copy(T value) {
+            if (value instanceof List<?> list) {
+                return (T) new ArrayList<>(list);
+            }
+            if (value instanceof Map<?, ?> map) {
+                Map<Object, Object> copied = new java.util.LinkedHashMap<>();
+                map.forEach((key, entryValue) -> copied.put(key,
+                        entryValue instanceof List<?> list
+                                ? new ArrayList<>(list) : entryValue));
+                return (T) copied;
+            }
+            return value;
         }
     }
 }
