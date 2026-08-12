@@ -184,23 +184,29 @@ public final class Settings {
     public final Setting<Boolean> autoEatAvoidValuableFoods = new Setting<>(true);
     public final Setting<Boolean> fakePlayerPublicMessages = new Setting<>(true);
     public final Setting<Integer> fakePlayerMessageCooldownTicks =
-            new Setting<>(200);
-    public final Setting<String> fakePlayerLowFoodMessage =
-            new Setting<>("饿饿，饭饭");
+            new Setting<>(1200);
+    public final Setting<Integer> fakePlayerCompletionMessageMinTicks =
+            new Setting<>(600);
     public final Setting<String> fakePlayerNoFoodMessage =
-            new Setting<>("背包里没有能吃的东西了。");
-    public final Setting<String> fakePlayerHurtFoodMessage =
-            new Setting<>("受伤了，我先吃点东西恢复一下。");
-    public final Setting<String> fakePlayerTntMessage =
-            new Setting<>("有 TNT 飞过来了，先躲一下！");
-    public final Setting<String> fakePlayerCreeperMessage =
-            new Setting<>("苦力怕靠得太近了！");
-    public final Setting<String> fakePlayerCombatMessage =
-            new Setting<>("有怪物在威胁我，我来处理。");
-    public final Setting<String> fakePlayerFleeMessage =
-            new Setting<>("没有剑或斧，我先撤了！");
-    public final Setting<String> fakePlayerPathFailureMessage =
-            new Setting<>("多次尝试后仍然找不到可行路径。");
+            new Setting<>("没有可用食物，任务可能无法继续（饥饿值 {food}）。");
+    public final Setting<String> fakePlayerTaskFailureMessage =
+            new Setting<>("任务失败：{reason}");
+    public final Setting<String> fakePlayerMissingToolMessage =
+            new Setting<>("没有可用的合适工具（需要 {tool}），只能使用 {fallback}。");
+    public final Setting<String> fakePlayerBuilderMissingMaterialsMessage =
+            new Setting<>("建造缺少材料，Builder 已暂停：{items}");
+    public final Setting<String> fakePlayerNoBridgeBlocksMessage =
+            new Setting<>("没有可用的完整垫脚方块，无法继续搭高或搭桥。");
+    public final Setting<String> fakePlayerInventoryBlockedMessage =
+            new Setting<>("物品栏已满，{task} 无法继续：{reason}");
+    public final Setting<String> fakePlayerCollectIncompleteMessage =
+            new Setting<>("收集未完成：{summary}");
+    public final Setting<String> fakePlayerTargetUnavailableMessage =
+            new Setting<>("目标 {target} 不可用：{reason}");
+    public final Setting<String> fakePlayerStuckMessage =
+            new Setting<>("任务持续卡住且自动恢复失败，位置 {x} {y} {z}。");
+    public final Setting<String> fakePlayerTaskCompleteMessage =
+            new Setting<>("长任务完成：{summary}");
     public final Setting<Double> mobSpawnerAvoidanceCoefficient = new Setting<>(2.0D);
     public final Setting<Integer> mobSpawnerAvoidanceRadius = new Setting<>(16);
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5D);

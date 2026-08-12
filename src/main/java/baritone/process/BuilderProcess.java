@@ -200,6 +200,9 @@ public final class BuilderProcess implements IBuilderProcess {
         this.unavailableMaterialKeys.clear();
         this.materialRecovery.clear();
         configured.reset();
+        baritone.getStatusMessenger().beginTask(
+                name == null || name.isBlank() ? "建造" : "建造 " + name);
+        baritone.getStatusMessenger().builderMissingMaterials(false, "");
     }
 
     public void serverTick() {
@@ -245,6 +248,8 @@ public final class BuilderProcess implements IBuilderProcess {
             if (recovery == BuilderMaterialRecovery.Result.ACQUIRED) {
                 missingInScan = false;
                 missingReported = false;
+                baritone.getStatusMessenger()
+                        .builderMissingMaterials(false, "");
                 updateApproxPlaceable();
             }
         }
@@ -276,8 +281,10 @@ public final class BuilderProcess implements IBuilderProcess {
             if (scan == ScanResult.PENDING) return;
             if (scan == ScanResult.COMPLETE) {
                 if (!repeatBuild()) {
-                    feedback.accept("蓝图建造完成"
-                            + (name == null ? "" : "：" + name));
+                    String completion = "蓝图建造完成"
+                            + (name == null ? "" : "：" + name);
+                    feedback.accept(completion);
+                    baritone.getStatusMessenger().taskComplete(completion);
                     onLostControl();
                 }
                 return;
@@ -1248,6 +1255,7 @@ public final class BuilderProcess implements IBuilderProcess {
         scanCursor = 0;
         missingInScan = false;
         missingReported = false;
+        baritone.getStatusMessenger().builderMissingMaterials(false, "");
         target = null;
         desired = null;
         failedUntil.clear();
@@ -2070,6 +2078,8 @@ public final class BuilderProcess implements IBuilderProcess {
         feedback.accept(details.isEmpty()
                 ? "当前层没有可执行的建造目标，Builder 已暂停"
                 : "缺少建材，Builder 已暂停：" + details);
+        baritone.getStatusMessenger().builderMissingMaterials(
+                true, details.isEmpty() ? "当前层没有可执行的建造目标" : details);
         missingReported = true;
     }
 
@@ -2186,6 +2196,7 @@ public final class BuilderProcess implements IBuilderProcess {
     @Override public void resume() {
         paused = false;
         missingReported = false;
+        baritone.getStatusMessenger().builderMissingMaterials(false, "");
         missingInScan = false;
         unavailableMaterialKeys.clear();
         materialRecovery.clear();

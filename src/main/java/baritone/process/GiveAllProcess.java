@@ -37,6 +37,8 @@ public final class GiveAllProcess implements IGiveAllProcess {
         onLostControl();
         recipientId = recipient.getUUID();
         this.feedback = feedback == null ? ignored -> { } : feedback;
+        baritone.getStatusMessenger().beginTask(
+                "交付全部物品给 " + recipient.getScoreboardName());
     }
 
     public void serverTick() {
@@ -45,11 +47,15 @@ public final class GiveAllProcess implements IGiveAllProcess {
         ServerPlayer player = baritone.getPlayerContext().player();
         if (recipient == null) {
             feedback.accept("目标玩家已离线，giveAll 已停止");
+            baritone.getStatusMessenger().targetUnavailable(
+                    "交付玩家", "玩家已离线");
             onLostControl();
             return;
         }
         if (recipient.level() != player.level()) {
             feedback.accept("目标玩家不在同一维度，无法交付");
+            baritone.getStatusMessenger().targetUnavailable(
+                    recipient.getScoreboardName(), "不在同一维度");
             onLostControl();
             return;
         }
@@ -77,9 +83,11 @@ public final class GiveAllProcess implements IGiveAllProcess {
             dropToward(recipient, stack);
         }
         player.inventoryMenu.broadcastChanges();
-        feedback.accept("已向 " + recipient.getScoreboardName()
+        String completion = "已向 " + recipient.getScoreboardName()
                 + " 丢出全部物品，共 " + stacks + " 组、"
-                + items + " 件");
+                + items + " 件";
+        feedback.accept(completion);
+        baritone.getStatusMessenger().taskComplete(completion);
         onLostControl();
     }
 
@@ -109,6 +117,11 @@ public final class GiveAllProcess implements IGiveAllProcess {
             boolean calcFailed, boolean isSafeToCancel) {
         if (calcFailed) {
             feedback.accept("无法在不破坏或放置方块的情况下到达目标玩家");
+            ServerPlayer failedRecipient = recipient();
+            baritone.getStatusMessenger().targetUnavailable(
+                    failedRecipient == null ? "交付玩家"
+                            : failedRecipient.getScoreboardName(),
+                    "在禁止方块操作的条件下不可达");
             onLostControl();
             return new PathingCommand(
                     null, PathingCommandType.REQUEST_PAUSE);
