@@ -82,6 +82,7 @@ import static baritone.api.pathing.movement.ActionCosts.COST_INF;
 /** Pure-server schematic builder process. */
 public final class BuilderProcess implements IBuilderProcess {
     private static final int SCHEMATIC_SCAN_BUDGET_PER_TICK = 8192;
+    private static final int MATERIAL_ESTIMATE_SAMPLE_LIMIT = 65_536;
 
     private enum ScanResult { FOUND, PENDING, COMPLETE }
 
@@ -1618,7 +1619,9 @@ public final class BuilderProcess implements IBuilderProcess {
                 wanted.getBlock().asItem();
         return requestContainerRefill(
                 "item:" + BuiltInRegistries.ITEM.getKey(item),
-                stack -> stack.is(item));
+                stack -> stack.is(item),
+                estimateRemainingPlacementItems(item),
+                Baritone.settings().printerContainerRefillBatch.value);
     }
 
     private boolean requestRequiredMaterial(
@@ -1626,7 +1629,7 @@ public final class BuilderProcess implements IBuilderProcess {
         if (wanted.is(Blocks.NETHER_PORTAL)
                 && !canIgnitePortal()) {
             return requestContainerRefill(
-                    "tool:nether_portal", portalIgnitionItem());
+                    "tool:nether_portal", portalIgnitionItem(), 1, 1);
         }
         BlockState placement = placementStageState(current, wanted);
         if (placement != null && !canPlace(placement)
@@ -1641,7 +1644,7 @@ public final class BuilderProcess implements IBuilderProcess {
                 .hasAccessibleItem(tool)) {
             return requestContainerRefill(
                     "tool:" + BuiltInRegistries.BLOCK
-                            .getKey(wanted.getBlock()), tool);
+                            .getKey(wanted.getBlock()), tool, 1, 1);
         }
         return !ensureAuxiliaryMaterial(wanted)
                 && materialRecovery.isActive();
@@ -1649,6 +1652,12 @@ public final class BuilderProcess implements IBuilderProcess {
 
     private boolean requestContainerRefill(
             String key, Predicate<ItemStack> matcher) {
+        return requestContainerRefill(key, matcher, 1, 1);
+    }
+
+    private boolean requestContainerRefill(
+            String key, Predicate<ItemStack> matcher,
+            int estimatedRequired, int maximumBatch) {
         if (unavailableMaterialKeys.contains(key)) {
             return false;
         }
@@ -1656,8 +1665,71 @@ public final class BuilderProcess implements IBuilderProcess {
             unavailableMaterialKeys.add(key);
             return false;
         }
-        materialRecovery.request(key, matcher);
+        materialRecovery.request(
+                key, matcher, estimatedRequired, maximumBatch);
         return materialRecovery.isActive();
+    }
+
+    /**
+     * Counts the remaining uses of one placement item in the current build.
+     * Loaded positions use the live block state; unloaded positions are still
+     * counted conservatively so a distant build does not force one-stack
+     * refill trips. Very large schematics are bounded to the inventory's
+     * useful capacity because the recovery process cannot carry more anyway.
+     */
+    private int estimateRemainingPlacementItems(
+            net.minecraft.world.item.Item item) {
+        int carried = baritone.getInventoryController().countAccessible(
+                stack -> stack.is(item));
+        int inventoryCapacity = Math.max(1,
+                baritone.getPlayerContext().player().getInventory()
+                        .getNonEquipmentItems().size())
+                * Math.max(1, item.getDefaultMaxStackSize());
+        int limit = Math.max(carried + 1, inventoryCapacity);
+        int required = 0;
+        int inspected = 0;
+        long volume = (long) schematic.widthX()
+                * schematic.heightY() * schematic.lengthZ();
+        int minY = 0;
+        int maxY = schematic.heightY() - 1;
+        var world = baritone.getPlayerContext().world();
+        outer:
+        for (int y = minY; y <= maxY && required < limit; y++) {
+            for (int z = 0; z < schematic.lengthZ()
+                    && required < limit; z++) {
+                for (int x = 0; x < schematic.widthX()
+                        && required < limit; x++) {
+                    if (inspected++ >= MATERIAL_ESTIMATE_SAMPLE_LIMIT) {
+                        break outer;
+                    }
+                    BlockPos pos = origin.offset(x, y, z);
+                    boolean loaded = world.hasChunkAt(pos);
+                    BlockState current = loaded
+                            ? world.getBlockState(pos)
+                            : Blocks.AIR.defaultBlockState();
+                    if (!schematic.inSchematic(x, y, z, current)) continue;
+                    BlockState wanted = schematic.desiredState(
+                            x, y, z, current, approxPlaceable);
+                    if (wanted == null || wanted.isAir()
+                            || wanted.getBlock().asItem() != item
+                            || loaded && printerSatisfied(current, wanted)) {
+                        continue;
+                    }
+                    required++;
+                }
+            }
+        }
+        return estimateDemandFromSample(
+                required, inspected, volume, limit);
+    }
+
+    static int estimateDemandFromSample(
+            int matches, int inspected, long total, int limit) {
+        if (matches <= 0 || inspected <= 0) return 1;
+        if (inspected >= total) return Math.min(limit, matches);
+        long projected = (matches * total + inspected - 1L) / inspected;
+        return (int) Math.max(1L,
+                Math.min((long) limit, projected));
     }
 
     private boolean ensureAuxiliaryMaterial(BlockState wanted) {
@@ -1668,7 +1740,7 @@ public final class BuilderProcess implements IBuilderProcess {
                         .hasAccessibleItem(
                                 stack -> stack.is(Items.WATER_BUCKET))) {
             requestContainerRefill("aux:water_bucket",
-                    stack -> stack.is(Items.WATER_BUCKET));
+                    stack -> stack.is(Items.WATER_BUCKET), 1, 1);
             return false;
         }
         if (wanted.getBlock() instanceof EndPortalFrameBlock
@@ -1677,7 +1749,7 @@ public final class BuilderProcess implements IBuilderProcess {
                         .hasAccessibleItem(
                                 stack -> stack.is(Items.ENDER_EYE))) {
             requestContainerRefill("aux:ender_eye",
-                    stack -> stack.is(Items.ENDER_EYE));
+                    stack -> stack.is(Items.ENDER_EYE), 1, 1);
             return false;
         }
         return true;

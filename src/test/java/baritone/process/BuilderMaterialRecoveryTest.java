@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class BuilderMaterialRecoveryTest {
@@ -23,5 +24,23 @@ public class BuilderMaterialRecoveryTest {
                 new BlockPos(0, 41, 0), min, max));
         assertFalse(BuilderMaterialRecovery.insideSelection(
                 new BlockPos(0, 30, -31), min, max));
+    }
+
+    @Test
+    public void forecastIsClampedByConfiguredMaximum() {
+        assertEquals(1, BuilderMaterialRecovery.targetInventoryCount(0, 64));
+        assertEquals(48, BuilderMaterialRecovery.targetInventoryCount(48, 64));
+        assertEquals(64, BuilderMaterialRecovery.targetInventoryCount(500, 64));
+        assertEquals(500, BuilderMaterialRecovery.targetInventoryCount(500, 2304));
+    }
+
+    @Test
+    public void sampledDemandIsProjectedAndBounded() {
+        assertEquals(40, BuilderProcess.estimateDemandFromSample(
+                10, 250, 1000, 2304));
+        assertEquals(2304, BuilderProcess.estimateDemandFromSample(
+                500, 1000, 10000, 2304));
+        assertEquals(7, BuilderProcess.estimateDemandFromSample(
+                7, 1000, 1000, 2304));
     }
 }
