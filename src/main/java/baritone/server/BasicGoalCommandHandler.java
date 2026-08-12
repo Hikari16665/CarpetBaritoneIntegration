@@ -1304,6 +1304,12 @@ public final class BasicGoalCommandHandler {
         }
 
         String operation = args[1].toLowerCase(Locale.ROOT);
+        if (operation.equals("default")) {
+            manageSettingDefault(sender, fakePlayer, fields, settings,
+                    args);
+            recalculateAllAfterSettingChange();
+            return;
+        }
         if (operation.equals("reset")) {
             if (args.length != 3) {
                 throw new IllegalArgumentException(
@@ -1361,6 +1367,45 @@ public final class BasicGoalCommandHandler {
         recalculateAfterSettingChange(baritone);
         reply(fakePlayer, sender, field.getName() + " = "
                 + settingValue(setting.value));
+    }
+
+    private static void manageSettingDefault(
+            ServerPlayer sender, ServerPlayer fakePlayer,
+            List<Field> fields, Settings settings, String[] args) {
+        if (args.length >= 3 && args[2].equalsIgnoreCase("reset")) {
+            if (args.length != 4) {
+                throw new IllegalArgumentException(
+                        "用法: settings default reset <设置名|all>");
+            }
+            if (args[3].equalsIgnoreCase("all")) {
+                ServerSettingsStore.restoreAllFactoryDefaults();
+                reply(fakePlayer, sender,
+                        "已清除全部持久默认设置并恢复内置默认值");
+                return;
+            }
+            Field field = findSetting(fields, args[3]);
+            Settings.Setting<?> setting = readSetting(settings, field);
+            ServerSettingsStore.restoreFactoryDefault(field, setting);
+            reply(fakePlayer, sender, field.getName()
+                    + " 的持久默认值已恢复为内置值 "
+                    + settingValue(setting.defaultValue));
+            return;
+        }
+        if (args.length != 3 && args.length != 4) {
+            throw new IllegalArgumentException(
+                    "用法: settings default <设置名> [值]，或 "
+                            + "settings default reset <设置名|all>");
+        }
+        Field field = findSetting(fields, args[2]);
+        Settings.Setting<?> setting = readSetting(settings, field);
+        Object value = args.length == 3 ? setting.value
+                : parseSettingValue(field, setting.factoryDefaultValue,
+                        args[3]);
+        ServerSettingsStore.setDefault(field, setting, value);
+        reply(fakePlayer, sender, field.getName()
+                + " 已设为持久默认值 "
+                + settingValue(setting.defaultValue)
+                + "；当前及后续假人将使用该值");
     }
 
     private static void setSelectionCorner(
@@ -1456,7 +1501,7 @@ public final class BasicGoalCommandHandler {
         setting.value = value;
     }
 
-    private static Object parseSettingValue(
+    static Object parseSettingValue(
             Field field, Object defaultValue, String text) {
         try {
             if (defaultValue instanceof Boolean) {
@@ -1571,7 +1616,7 @@ public final class BasicGoalCommandHandler {
         return result;
     }
 
-    private static String settingValue(Object value) {
+    static String settingValue(Object value) {
         if (value instanceof Block block) {
             return BuiltInRegistries.BLOCK.getKey(block).toString();
         }
@@ -1605,6 +1650,13 @@ public final class BasicGoalCommandHandler {
     private static void recalculateAfterSettingChange(Baritone baritone) {
         Goal goal = baritone.getActiveGoal();
         if (goal != null) baritone.recalculateForProcess(goal);
+    }
+
+    private static void recalculateAllAfterSettingChange() {
+        Carpetbaritoneintegration.BARITONES.forEach(instance -> {
+            Goal goal = instance.getActiveGoal();
+            if (goal != null) instance.recalculateForProcess(goal);
+        });
     }
 
     private static void startGoal(
