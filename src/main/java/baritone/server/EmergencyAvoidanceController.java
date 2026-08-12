@@ -5,6 +5,10 @@ import baritone.api.utils.Rotation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -82,7 +86,7 @@ public final class EmergencyAvoidanceController {
         }
 
         if (strongest == Threat.NONE || escape.lengthSqr() < 0.0001D) {
-            clear();
+            tickHostileResponse(player, scan);
             return;
         }
         Vec3 direction = escape.normalize();
@@ -92,6 +96,86 @@ public final class EmergencyAvoidanceController {
                 && (player.horizontalCollision || player.onGround());
         input.setEmergencyMovement(new Rotation(yaw, 0.0F), true, jump);
         activeThreat = strongest;
+    }
+
+    private void tickHostileResponse(ServerPlayer player, AABB scan) {
+        if (!Baritone.settings().autoCombat.value) {
+            clear();
+            return;
+        }
+        double detection = Math.max(1.0D,
+                Baritone.settings().hostileDetectionRadius.value);
+        double aggro = Math.max(1.0D,
+                Baritone.settings().hostileAggroRadius.value);
+        Monster target = player.level().getEntitiesOfClass(
+                        Monster.class,
+                        player.getBoundingBox().inflate(detection),
+                        entity -> entity.isAlive()
+                                && !(entity instanceof Creeper)
+                                && (entity.getTarget() == player
+                                || player.distanceToSqr(entity)
+                                <= aggro * aggro))
+                .stream().min(java.util.Comparator.comparingDouble(
+                        player::distanceToSqr)).orElse(null);
+        if (target == null) {
+            clear();
+            return;
+        }
+        boolean armed = selectWeapon(player);
+        Vec3 delta = target.position().subtract(player.position());
+        Vec3 horizontal = new Vec3(delta.x, 0.0D, delta.z);
+        float yaw = horizontal.lengthSqr() < 0.0001D
+                ? player.getYRot() : (float) Math.toDegrees(
+                Math.atan2(-horizontal.x, horizontal.z));
+        double horizontalDistance = Math.sqrt(horizontal.lengthSqr());
+        if (!armed) {
+            if (!Baritone.settings().combatFleeWithoutWeapon.value) {
+                clear();
+                return;
+            }
+            Vec3 away = horizontal.lengthSqr() < 0.0001D
+                    ? new Vec3(1.0D, 0.0D, 0.0D)
+                    : horizontal.scale(-1.0D).normalize();
+            float awayYaw = (float) Math.toDegrees(
+                    Math.atan2(-away.x, away.z));
+            input.setPriorityMovement(new Rotation(awayYaw, 0.0F),
+                    true, true,
+                    Baritone.settings().emergencyAvoidanceJump.value
+                            && (player.horizontalCollision || player.onGround()));
+            activeThreat = Threat.HOSTILE_FLEE;
+            return;
+        }
+        if (!player.hasLineOfSight(target)) {
+            clear();
+            return;
+        }
+        double reach = Math.max(1.5D,
+                Baritone.settings().combatAttackReach.value);
+        boolean inReach = horizontalDistance <= reach
+                && Math.abs(target.getY() - player.getY()) <= 2.5D;
+        input.setPriorityMovement(new Rotation(yaw, 0.0F), !inReach,
+                !inReach, !inReach && player.horizontalCollision);
+        activeThreat = Threat.HOSTILE_COMBAT;
+        if (inReach && player.getAttackStrengthScale(0.5F)
+                >= Baritone.settings().combatMinAttackStrength.value) {
+            player.attack(target);
+            player.swing(InteractionHand.MAIN_HAND, true);
+            player.resetAttackStrengthTicker();
+        }
+    }
+
+    private boolean selectWeapon(ServerPlayer player) {
+        ItemStack current = player.getMainHandItem();
+        if (isWeapon(current)) return true;
+        return baritone.getInventoryController().selectItemForBuilder(
+                stack -> stack.is(ItemTags.SWORDS))
+                || baritone.getInventoryController().selectItemForBuilder(
+                stack -> stack.is(ItemTags.AXES));
+    }
+
+    static boolean isWeapon(ItemStack stack) {
+        return !stack.isEmpty() && (stack.is(ItemTags.SWORDS)
+                || stack.is(ItemTags.AXES));
     }
 
     public Threat activeThreat() {
@@ -124,5 +208,7 @@ public final class EmergencyAvoidanceController {
         return position.add(velocity.scale(ticks));
     }
 
-    public enum Threat { NONE, TNT, CREEPER }
+    public enum Threat {
+        NONE, TNT, CREEPER, HOSTILE_COMBAT, HOSTILE_FLEE
+    }
 }

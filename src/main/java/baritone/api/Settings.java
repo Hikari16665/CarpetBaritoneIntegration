@@ -171,6 +171,12 @@ public final class Settings {
     public final Setting<Double> creeperAvoidanceRadius = new Setting<>(7.0D);
     public final Setting<Double> creeperCriticalRadius = new Setting<>(4.5D);
     public final Setting<Boolean> emergencyAvoidanceJump = new Setting<>(true);
+    public final Setting<Boolean> autoCombat = new Setting<>(true);
+    public final Setting<Double> hostileDetectionRadius = new Setting<>(12.0D);
+    public final Setting<Double> hostileAggroRadius = new Setting<>(6.0D);
+    public final Setting<Double> combatAttackReach = new Setting<>(3.0D);
+    public final Setting<Double> combatMinAttackStrength = new Setting<>(0.9D);
+    public final Setting<Boolean> combatFleeWithoutWeapon = new Setting<>(true);
     public final Setting<Double> mobSpawnerAvoidanceCoefficient = new Setting<>(2.0D);
     public final Setting<Integer> mobSpawnerAvoidanceRadius = new Setting<>(16);
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5D);
