@@ -84,13 +84,15 @@ final class SettingEditorScreen extends AbstractScreen {
             case "BLOCK_MAP" -> initMap(left, top + 42);
             default -> initNumber(left, top + 42);
         }
-        addWidget(new ButtonWidget(left, top + 174, 82, 22,
+        addWidget(new ButtonWidget(left, top + 174, 78, 22,
                 Component.literal("恢复默认"), button -> reset()));
-        addWidget(new ButtonWidget(left + 88, top + 174, 82, 22,
+        addWidget(new ButtonWidget(left + 84, top + 174, 70, 22,
                 Component.literal("返回"), button ->
                 minecraft.setScreen(parent)));
-        addWidget(new ButtonWidget(left + 176, top + 174, 164, 22,
+        addWidget(new ButtonWidget(left + 160, top + 174, 82, 22,
                 Component.literal("应用设置"), button -> apply()));
+        addWidget(new ButtonWidget(left + 248, top + 174, 92, 22,
+                Component.literal("设为默认"), button -> applyDefault()));
         super.init();
     }
 
@@ -384,7 +386,19 @@ final class SettingEditorScreen extends AbstractScreen {
     }
 
     private void apply() {
-        encoded = switch (option.type()) {
+        encoded = editorValue();
+        send("settings " + option.name() + " " + encoded);
+        minecraft.setScreen(parent);
+    }
+
+    private void applyDefault() {
+        encoded = editorValue();
+        send("settings default " + option.name() + " " + encoded);
+        minecraft.setScreen(parent);
+    }
+
+    private String editorValue() {
+        return switch (option.type()) {
             case "INTEGER", "LONG", "FLOAT", "DOUBLE", "STRING" ->
                     number.getValue().trim();
             case "VECTOR" -> vectorX.getValue().trim() + ","
@@ -395,8 +409,6 @@ final class SettingEditorScreen extends AbstractScreen {
             case "BLOCK_MAP" -> encodeMap();
             default -> encoded;
         };
-        send("settings " + option.name() + " " + encoded);
-        minecraft.setScreen(parent);
     }
 
     private String encodeMap() {
