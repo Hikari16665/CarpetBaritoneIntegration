@@ -5,68 +5,215 @@ import com.daqem.uilib.gui.background.DarkenedBackground;
 import com.daqem.uilib.gui.component.text.TextComponent;
 import com.daqem.uilib.gui.component.EmptyComponent;
 import com.daqem.uilib.gui.widget.ButtonWidget;
+import com.daqem.uilib.gui.widget.EditBoxWidget;
 import com.daqem.uilib.gui.widget.ScrollContainerWidget;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-/** First stage: a single command catalogue with no parameter clutter. */
+/** Responsive UI Lib dashboard used as the B-key entry point. */
 public final class BaritoneControlScreen extends AbstractScreen {
+    private int fakeIndex;
+    private int categoryIndex = -1;
+    private String filter = "";
+    private ButtonWidget fakeSelector;
+    private ButtonWidget categorySelector;
+    private EditBoxWidget search;
+    private boolean awaitingOptions;
+
     public BaritoneControlScreen() {
-        super(Component.literal("Carpet Baritone 命令"));
+        super(Component.literal("CBI 控制面板"));
         setBackground(new DarkenedBackground());
     }
 
     @Override
     protected void init() {
         clear();
+        awaitingOptions = ClientControlOptions.fakePlayers().isEmpty();
         ClientControlOptions.request();
-        int panelWidth = 320;
-        int left = width / 2 - panelWidth / 2;
-        int top = Math.max(18, height / 2 - 120);
+        fakeIndex = ClientControlOptions.selectedFakeIndex();
+        int panelWidth = Math.min(640, Math.max(360, width - 32));
+        int left = (width - panelWidth) / 2;
+        int top = Math.max(10, (height - Math.min(390, height - 20)) / 2);
         addComponent(new TextComponent(left, top,
-                Component.literal("选择要执行的命令")));
-        int scrollHeight = Math.min(220, height - top - 35);
-        EmptyComponent scrollHost = new EmptyComponent(
-                left, top + 22, panelWidth, scrollHeight);
-        ScrollContainerWidget scroll = new ScrollContainerWidget(
-                panelWidth, scrollHeight, 4);
-        for (Category category : Category.values()) {
-            List<ControlCommand> commands = new ArrayList<>();
-            for (ControlCommand command : ControlCommand.values()) {
-                if (command.category == category) commands.add(command);
+                Component.literal("CBI 控制面板")));
+        addComponent(new TextComponent(left + 105, top,
+                Component.literal("服务端 Baritone 假人调度中心")));
+
+        fakeSelector = new ButtonWidget(left, top + 22,
+                panelWidth - 86, 22, Component.empty(), button -> {
+            List<String> fakes = ClientControlOptions.fakePlayers();
+            if (!fakes.isEmpty()) {
+                fakeIndex = Math.floorMod(fakeIndex + 1, fakes.size());
+                rememberFake();
+                refreshFake();
             }
-            if (commands.isEmpty()) continue;
-            scroll.addComponent(new TextComponent(
-                    2, 0, Component.literal(category.title)));
-            for (int i = 0; i < commands.size(); i += 2) {
-                EmptyComponent row = new EmptyComponent(
-                        0, 0, panelWidth - 12, 24);
-                addCommandButton(row, commands.get(i), 0);
-                if (i + 1 < commands.size()) {
-                    addCommandButton(row, commands.get(i + 1), 154);
-                }
-                scroll.addComponent(row);
-            }
-        }
-        scrollHost.addWidget(scroll);
-        addComponent(scrollHost);
+        });
+        addWidget(fakeSelector);
+        addWidget(new ButtonWidget(left + panelWidth - 80, top + 22,
+                80, 22, Component.literal("刷新列表"), button -> {
+            awaitingOptions = true;
+            ClientControlOptions.request();
+        }));
+
+        categorySelector = new ButtonWidget(left, top + 50,
+                150, 22, Component.empty(), button -> {
+            categoryIndex++;
+            if (categoryIndex >= Category.values().length) categoryIndex = -1;
+            rebuild();
+        });
+        addWidget(categorySelector);
+        search = new EditBoxWidget(font, left + 156, top + 50,
+                panelWidth - 232, 22, Component.literal("搜索命令"));
+        search.setHint(Component.literal("按中文名称或命令关键字搜索"));
+        search.setValue(filter);
+        addWidget(search);
+        addWidget(new ButtonWidget(left + panelWidth - 70, top + 50,
+                70, 22, Component.literal("搜索"), button -> {
+            filter = search.getValue().trim();
+            rebuild();
+        }));
+
+        int scrollTop = top + 78;
+        int scrollHeight = Math.max(88,
+                Math.min(260, height - scrollTop - 38));
+        addCommandCatalogue(left, scrollTop, panelWidth, scrollHeight);
+        addQuickControls(left, scrollTop + scrollHeight + 6, panelWidth);
+        refreshFake();
+        refreshCategory();
         super.init();
     }
 
-    private void addCommandButton(
-            EmptyComponent row, ControlCommand command, int x) {
-        row.addWidget(new ButtonWidget(
-                x, 0, 150, 22, Component.literal(command.title),
-                button -> minecraft.gui.setScreen(command == ControlCommand.SETTINGS
-                        ? new SettingsListScreen(this)
-                        : command.kind == Kind.MULTI_BLOCK
-                        || command.kind == Kind.MULTI_ITEM_AMOUNT_PLAYER
-                        ? new MultiItemCommandScreen(this, command)
-                        : command.kind.structured()
-                        ? new StructuredCommandScreen(this, command)
-                        : new CommandParameterScreen(this, command))));
+    private void addCommandCatalogue(
+            int left, int top, int panelWidth, int scrollHeight) {
+        EmptyComponent host = new EmptyComponent(left, top,
+                panelWidth, scrollHeight);
+        ScrollContainerWidget scroll = new ScrollContainerWidget(
+                panelWidth, scrollHeight, 4);
+        List<ControlCommand> visible = visibleCommands();
+        if (visible.isEmpty()) {
+            scroll.addComponent(new TextComponent(8, 6,
+                    Component.literal("没有匹配的命令，请更换分类或搜索词。")));
+        }
+        Category last = null;
+        int cardWidth = (panelWidth - 18) / 2;
+        for (int index = 0; index < visible.size();) {
+            ControlCommand first = visible.get(index);
+            if (categoryIndex < 0 && first.category != last) {
+                last = first.category;
+                scroll.addComponent(new TextComponent(4, 2,
+                        Component.literal(last.title)));
+            }
+            EmptyComponent row = new EmptyComponent(
+                    0, 0, panelWidth - 10, 34);
+            addCommandCard(row, first, 2, cardWidth);
+            index++;
+            if (index < visible.size()) {
+                ControlCommand second = visible.get(index);
+                if (categoryIndex >= 0 || second.category == last) {
+                    addCommandCard(row, second, cardWidth + 8, cardWidth);
+                    index++;
+                }
+            }
+            scroll.addComponent(row);
+        }
+        host.addWidget(scroll);
+        addComponent(host);
+    }
+
+    private void addCommandCard(
+            EmptyComponent row, ControlCommand command, int x, int width) {
+        String suffix = command.hint.equals("参数") ? "" : " · " + command.hint;
+        row.addWidget(new ButtonWidget(x, 0, width, 30,
+                Component.literal(command.title + "  /" + command.command
+                        + suffix), button -> open(command)));
+    }
+
+    private void addQuickControls(int left, int top, int panelWidth) {
+        int gap = 6;
+        int buttonWidth = (panelWidth - gap * 4) / 5;
+        ControlCommand[] quick = {ControlCommand.STOP, ControlCommand.PAUSE,
+                ControlCommand.RESUME, ControlCommand.STATUS,
+                ControlCommand.SETTINGS};
+        for (int index = 0; index < quick.length; index++) {
+            ControlCommand command = quick[index];
+            addWidget(new ButtonWidget(left + index * (buttonWidth + gap), top,
+                    buttonWidth, 22, Component.literal(command.title),
+                    button -> open(command)));
+        }
+    }
+
+    private List<ControlCommand> visibleCommands() {
+        String normalized = filter.toLowerCase(Locale.ROOT);
+        List<ControlCommand> result = new ArrayList<>();
+        for (ControlCommand command : ControlCommand.values()) {
+            if (isQuick(command)) continue;
+            if (categoryIndex >= 0
+                    && command.category != Category.values()[categoryIndex]) continue;
+            String searchable = command.title + " " + command.command
+                    + " " + command.hint + " " + command.category.title;
+            if (searchable.toLowerCase(Locale.ROOT).contains(normalized)) {
+                result.add(command);
+            }
+        }
+        return result;
+    }
+
+    private static boolean isQuick(ControlCommand command) {
+        return command == ControlCommand.STOP || command == ControlCommand.PAUSE
+                || command == ControlCommand.RESUME
+                || command == ControlCommand.STATUS
+                || command == ControlCommand.SETTINGS;
+    }
+
+    private void open(ControlCommand command) {
+        rememberFake();
+        minecraft.gui.setScreen(command == ControlCommand.SETTINGS
+                ? new SettingsListScreen(this)
+                : command.kind == Kind.MULTI_BLOCK
+                || command.kind == Kind.MULTI_ITEM_AMOUNT_PLAYER
+                ? new MultiItemCommandScreen(this, command)
+                : command.kind.structured()
+                ? new StructuredCommandScreen(this, command)
+                : new CommandParameterScreen(this, command));
+    }
+
+    private void rebuild() {
+        if (search != null) filter = search.getValue().trim();
+        minecraft.gui.setScreen(this);
+    }
+
+    private void refreshFake() {
+        if (fakeSelector == null) return;
+        List<String> fakes = ClientControlOptions.fakePlayers();
+        String selected = fakes.isEmpty() ? "没有在线假人"
+                : fakes.get(Math.floorMod(fakeIndex, fakes.size()));
+        fakeSelector.setMessage(Component.literal(
+                "当前控制：" + selected + "（点击切换）"));
+        fakeSelector.active = !fakes.isEmpty();
+    }
+
+    private void refreshCategory() {
+        categorySelector.setMessage(Component.literal("分类："
+                + (categoryIndex < 0 ? "全部"
+                : Category.values()[categoryIndex].title)));
+    }
+
+    private void rememberFake() {
+        List<String> fakes = ClientControlOptions.fakePlayers();
+        if (!fakes.isEmpty()) {
+            ClientControlOptions.rememberFake(
+                    fakes.get(Math.floorMod(fakeIndex, fakes.size())));
+        }
+    }
+
+    void optionsUpdated() {
+        if (!awaitingOptions) return;
+        awaitingOptions = false;
+        fakeIndex = ClientControlOptions.selectedFakeIndex();
+        rebuild();
     }
 
     enum ControlCommand {
