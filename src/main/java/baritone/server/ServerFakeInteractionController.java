@@ -183,6 +183,15 @@ public final class ServerFakeInteractionController {
         return findVisibleBreakPoint(pos) != null;
     }
 
+    /**
+     * Lets a process preserve the target of an in-progress survival break.
+     * Switching targets is intentionally equivalent to releasing and pressing
+     * attack on another block, so callers must not rotate a timed transaction.
+     */
+    public boolean isBreakingBlock(BlockPos pos) {
+        return pos != null && pos.equals(activeBreakTarget);
+    }
+
     private Vec3 findVisibleBreakPoint(BlockPos pos) {
         Vec3 eye = player.getEyePosition();
         Vec3[] samples = {
