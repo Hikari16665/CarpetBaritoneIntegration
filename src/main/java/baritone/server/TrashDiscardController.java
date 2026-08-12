@@ -267,7 +267,7 @@ public final class TrashDiscardController {
 
     private int countUsableTrashBlocks(Predicate<ItemStack> protectedDrop) {
         int total = 0;
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (stack.isEmpty() || !isConfiguredTrash(stack)
                     || !isUsablePathingBlock(stack)
                     || protectedDrop != null && protectedDrop.test(stack)) {

@@ -57,12 +57,12 @@ public final class AutoEatController {
 
     public boolean hasAvailableFood() {
         return baritone.getPlayerContext().player().getInventory()
-                .getNonEquipmentItems().stream().anyMatch(this::isAllowedFood);
+                .items.stream().anyMatch(this::isAllowedFood);
     }
 
     private boolean selectBestFood(int missingHunger) {
         ItemStack best = baritone.getPlayerContext().player().getInventory()
-                .getNonEquipmentItems().stream()
+                .items.stream()
                 .filter(this::isAllowedFood)
                 .max(java.util.Comparator.comparingDouble(
                         stack -> foodScore(stack, missingHunger)))
@@ -74,8 +74,7 @@ public final class AutoEatController {
     }
 
     private boolean isAllowedFood(ItemStack stack) {
-        if (stack.isEmpty() || !stack.has(DataComponents.FOOD)
-                || !stack.has(DataComponents.CONSUMABLE)) return false;
+        if (stack.isEmpty() || !stack.has(DataComponents.FOOD)) return false;
         if (Baritone.settings().autoEatAvoidValuableFoods.value
                 && (stack.is(Items.GOLDEN_APPLE)
                 || stack.is(Items.ENCHANTED_GOLDEN_APPLE))) return false;

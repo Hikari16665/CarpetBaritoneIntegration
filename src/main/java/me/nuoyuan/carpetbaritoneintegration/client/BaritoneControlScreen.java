@@ -88,10 +88,10 @@ public final class BaritoneControlScreen extends AbstractScreen {
 
     private void addCommandCatalogue(
             int left, int top, int panelWidth, int scrollHeight) {
-        EmptyComponent host = new EmptyComponent(left, top,
-                panelWidth, scrollHeight);
         ScrollContainerWidget scroll = new ScrollContainerWidget(
                 panelWidth, scrollHeight, 4);
+        scroll.setX(left);
+        scroll.setY(top);
         List<ControlCommand> visible = visibleCommands();
         if (visible.isEmpty()) {
             scroll.addComponent(new TextComponent(8, 6,
@@ -119,8 +119,7 @@ public final class BaritoneControlScreen extends AbstractScreen {
             }
             scroll.addComponent(row);
         }
-        host.addWidget(scroll);
-        addComponent(host);
+        addWidget(scroll);
     }
 
     private void addCommandCard(
