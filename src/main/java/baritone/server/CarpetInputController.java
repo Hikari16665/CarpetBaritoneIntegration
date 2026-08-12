@@ -32,6 +32,10 @@ public final class CarpetInputController implements IInputOverrideHandler {
     private final Map<Input, Boolean> requested = new EnumMap<>(Input.class);
     private final Map<Input, Boolean> applied = new EnumMap<>(Input.class);
     private Rotation targetRotation;
+    private boolean emergencyMovement;
+    private Rotation emergencyRotation;
+    private boolean emergencySprint;
+    private boolean emergencyJump;
     private BlockPos blockBreakTarget;
     private BlockPos activeBreakTarget;
     private double blockBreakProgress;
@@ -85,11 +89,13 @@ public final class CarpetInputController implements IInputOverrideHandler {
 
         actionPack.setForward(forward);
         actionPack.setStrafing(strafing);
-        actionPack.setSneaking(isInputForcedDown(Input.SNEAK));
-        actionPack.setSprinting(isInputForcedDown(Input.SPRINT));
+        actionPack.setSneaking(effective(Input.SNEAK));
+        actionPack.setSprinting(effective(Input.SPRINT));
 
-        if (targetRotation != null) {
-            actionPack.look(targetRotation.getYaw(), targetRotation.getPitch());
+        Rotation appliedRotation = emergencyMovement
+                ? emergencyRotation : targetRotation;
+        if (appliedRotation != null) {
+            actionPack.look(appliedRotation.getYaw(), appliedRotation.getPitch());
         }
 
         applyAction(Input.JUMP, EntityPlayerActionPack.ActionType.JUMP);
@@ -110,12 +116,12 @@ public final class CarpetInputController implements IInputOverrideHandler {
     }
 
     private float axis(Input positive, Input negative) {
-        return (isInputForcedDown(positive) ? 1.0F : 0.0F)
-                - (isInputForcedDown(negative) ? 1.0F : 0.0F);
+        return (effective(positive) ? 1.0F : 0.0F)
+                - (effective(negative) ? 1.0F : 0.0F);
     }
 
     private void applyAction(Input input, EntityPlayerActionPack.ActionType actionType) {
-        boolean shouldRun = isInputForcedDown(input);
+        boolean shouldRun = effective(input);
         boolean wasRunning = applied.getOrDefault(input, false);
         if (shouldRun == wasRunning) {
             return;
@@ -125,6 +131,40 @@ public final class CarpetInputController implements IInputOverrideHandler {
                 shouldRun ? EntityPlayerActionPack.Action.continuous() : null
         );
         applied.put(input, shouldRun);
+    }
+
+    public void setEmergencyMovement(
+            Rotation rotation, boolean sprint, boolean jump) {
+        emergencyMovement = true;
+        emergencyRotation = rotation == null ? null
+                : rotation.normalizeAndClamp();
+        emergencySprint = sprint;
+        emergencyJump = jump;
+        tick();
+    }
+
+    public void clearEmergencyMovement() {
+        if (!emergencyMovement) return;
+        emergencyMovement = false;
+        emergencyRotation = null;
+        emergencySprint = false;
+        emergencyJump = false;
+        tick();
+    }
+
+    public boolean isEmergencyMovementActive() {
+        return emergencyMovement;
+    }
+
+    private boolean effective(Input input) {
+        if (!emergencyMovement) return isInputForcedDown(input);
+        return switch (input) {
+            case MOVE_FORWARD -> true;
+            case SPRINT -> emergencySprint;
+            case JUMP -> emergencyJump;
+            case MOVE_BACK, MOVE_LEFT, MOVE_RIGHT, SNEAK -> false;
+            default -> isInputForcedDown(input);
+        };
     }
 
     private void stopCarpetAttack() {
