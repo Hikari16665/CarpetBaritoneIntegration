@@ -876,9 +876,18 @@ public final class BuilderProcess implements IBuilderProcess {
             for (int dx = -4; dx <= 4; dx++) {
                 for (int dz = -4; dz <= 4; dz++) {
                     BlockPos stance = target.offset(dx, dy, dz);
+                    boolean currentStance = stance.equals(feet);
                     if (stance.equals(target)
-                            || !finalSpacePassable(stance)
-                            || !finalSpacePassable(stance.above())
+                            // Do not route into cells that the finished
+                            // schematic occupies. The player may already be
+                            // inside a fill/build volume, however; excluding
+                            // that real current stance would force a route to
+                            // an exterior platform even when the target is
+                            // directly reachable (and a floating volume may
+                            // have no such route at all).
+                            || !currentStance
+                            && (!finalSpacePassable(stance)
+                            || !finalSpacePassable(stance.above()))
                             || !currentSpacePassable(stance)
                             || !currentSpacePassable(stance.above())) {
                         continue;
@@ -898,7 +907,6 @@ public final class BuilderProcess implements IBuilderProcess {
                     double eyeX = stance.getX() + 0.5D;
                     double eyeY = stance.getY() + 1.62D;
                     double eyeZ = stance.getZ() + 0.5D;
-                    boolean currentStance = stance.equals(feet);
                     if (currentStance) {
                         // A goal cell says nothing about where inside that
                         // cell the entity stopped. Validate current feet with
@@ -1438,7 +1446,18 @@ public final class BuilderProcess implements IBuilderProcess {
                         preview -> sameEnough(preview, placement))) {
             return;
         }
+        if (tryPlaceFloatingTargetSupport()) {
+            // The target remains selected. On the next tick the normal
+            // printer placement uses this owned temporary face, and the
+            // existing pathing-support cleanup removes it after the build.
+            publishedApproachGoal = null;
+            return;
+        }
         Goal approach = approachGoal(target, desired);
+        if (approach == null) {
+            deferFailedTarget(target, 20);
+            return;
+        }
         BlockPos feet = baritone.getPlayerContext().playerFeet();
         if (approach.isInGoal(
                 feet.getX(), feet.getY(), feet.getZ())) {
@@ -1448,6 +1467,55 @@ public final class BuilderProcess implements IBuilderProcess {
             return;
         }
         // Keep the target; onTick() owns path submission.
+    }
+
+    /**
+     * Bootstraps the first block of a floating schematic without treating
+     * "can reach air" as "can legally place there". Only cells outside the
+     * schematic (or cells whose final state is air) may become temporary
+     * supports, so cleanup can never punch a hole in the finished build.
+     */
+    private boolean tryPlaceFloatingTargetSupport() {
+        if (!baritone.getInventoryController().hasGenericThrowaway()) {
+            return false;
+        }
+        Direction[] order = {
+                Direction.DOWN,
+                Direction.NORTH, Direction.SOUTH,
+                Direction.WEST, Direction.EAST,
+                Direction.UP
+        };
+        for (Direction direction : order) {
+            BlockPos support = target.relative(direction);
+            if (!temporarySupportAllowedAt(support)
+                    || !baritone.getFakeInteractionController()
+                            .canReach(support)
+                    || !baritone.getInventoryController()
+                            .selectThrowawayForLocation(
+                                    true, support.getX(), support.getY(),
+                                    support.getZ())) {
+                continue;
+            }
+            if (baritone.getFakeInteractionController()
+                    .placeSelectedBlock(support)) {
+                recordPathingSupport(support);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean temporarySupportAllowedAt(BlockPos pos) {
+        BlockState current = baritone.getPlayerContext().world()
+                .getBlockState(pos);
+        if (!current.canBeReplaced()) return false;
+        int x = pos.getX() - origin.getX();
+        int y = pos.getY() - origin.getY();
+        int z = pos.getZ() - origin.getZ();
+        if (!schematic.inSchematic(x, y, z, current)) return true;
+        BlockState wanted = schematic.desiredState(
+                x, y, z, current, approxPlaceable);
+        return wanted == null || wanted.isAir();
     }
 
     private boolean canPlace(BlockState wanted) {
