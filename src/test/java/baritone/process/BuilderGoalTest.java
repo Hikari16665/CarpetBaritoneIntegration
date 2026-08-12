@@ -111,4 +111,24 @@ public class BuilderGoalTest {
         assertTrue(goal.isInGoal(9, 65, 10));
         assertFalse(goal.isInGoal(9, 66, 10));
     }
+
+    @Test
+    public void supportCleanupConsumesHighStructureBeforeItsBase() {
+        BlockPos feet = new BlockPos(0, 70, 0);
+        BlockPos high = new BlockPos(12, 74, 12);
+        BlockPos nearbyBase = new BlockPos(0, 69, 0);
+
+        assertTrue(BuilderProcess.supportCleanupPriority(
+                high, nearbyBase, feet) > 0);
+    }
+
+    @Test
+    public void supportCleanupReusesNearestRouteWithinSameLevel() {
+        BlockPos feet = new BlockPos(0, 70, 0);
+        BlockPos nearby = new BlockPos(1, 72, 0);
+        BlockPos distant = new BlockPos(20, 72, 20);
+
+        assertTrue(BuilderProcess.supportCleanupPriority(
+                nearby, distant, feet) > 0);
+    }
 }
