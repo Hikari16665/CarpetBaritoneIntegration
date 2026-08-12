@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.NonNullList;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.BlockItem;
@@ -53,6 +54,9 @@ public final class ServerInventoryController {
                                 && blockItem.getBlock() == wanted.getBlock();
                 slot = findSlot(wantedBlock);
                 if (slot < 0 && selectItem(wantedBlock)) {
+                    if (select && baritone != null) {
+                        baritone.getStatusMessenger().noBridgeBlocks(false);
+                    }
                     return true;
                 }
             }
@@ -63,7 +67,13 @@ public final class ServerInventoryController {
             // this exact predicate or a planned pillar can never execute.
             if (!selectItem(this::isConfiguredThrowaway)
                     && !selectItem(this::isGenericThrowaway)) {
+                if (select && baritone != null) {
+                    baritone.getStatusMessenger().noBridgeBlocks(true);
+                }
                 return false;
+            }
+            if (select && baritone != null) {
+                baritone.getStatusMessenger().noBridgeBlocks(false);
             }
             return true;
         }
@@ -71,7 +81,11 @@ public final class ServerInventoryController {
             return false;
         }
         if (select) {
-            return selectInventorySlot(slot, 8);
+            boolean selected = selectInventorySlot(slot, 8);
+            if (baritone != null) {
+                baritone.getStatusMessenger().noBridgeBlocks(!selected);
+            }
+            return selected;
         }
         return true;
     }
@@ -228,6 +242,23 @@ public final class ServerInventoryController {
             inventory.set(bestIndex, hotbar);
             player.inventoryMenu.broadcastChanges();
             markInventoryMoved();
+            bestIndex = 0;
+        }
+        if (bestIndex >= 0 && bestIndex < 9) {
+            player.getInventory().setSelectedSlot(bestIndex);
+        }
+        if (baritone != null) {
+            ItemStack selected = player.getMainHandItem();
+            boolean missing = state.requiresCorrectToolForDrops()
+                    && (selected.isEmpty()
+                    || !selected.isCorrectToolForDrops(state));
+            String required = BuiltInRegistries.BLOCK.getKey(
+                    state.getBlock()).toString();
+            String fallback = selected.isEmpty() ? "空手"
+                    : BuiltInRegistries.ITEM.getKey(
+                            selected.getItem()).toString();
+            baritone.getStatusMessenger().missingTool(
+                    missing, required, fallback);
         }
     }
 

@@ -28,6 +28,8 @@ public final class FollowProcess implements IFollowProcess {
     private boolean into;
     private Goal lastGoal;
     private int ticks;
+    private boolean hadTarget;
+    private String targetDescription = "跟随目标";
 
     public FollowProcess(Baritone baritone) {
         this.baritone = baritone;
@@ -75,13 +77,30 @@ public final class FollowProcess implements IFollowProcess {
                 .filter(filter)
                 .distinct()
                 .collect(Collectors.toList());
+        if (!cache.isEmpty()) {
+            hadTarget = true;
+        } else if (hadTarget) {
+            hadTarget = false;
+            baritone.getStatusMessenger().targetUnavailable(
+                    targetDescription, "离线、跨维度或超出跟随范围");
+        }
     }
 
     @Override public boolean isActive() { scanWorld(); return filter != null && !cache.isEmpty(); }
     @Override public boolean isTemporary() { return true; }
-    @Override public void onLostControl() { filter = null; cache = null; lastGoal = null; }
+    @Override public void onLostControl() {
+        filter = null;
+        cache = null;
+        lastGoal = null;
+        hadTarget = false;
+        targetDescription = "跟随目标";
+    }
     @Override public String displayName0() { return "Following " + cache; }
     @Override public void follow(Predicate<Entity> filter) { this.filter = filter; this.into = false; }
+    public void targetDescription(String description) {
+        targetDescription = description == null || description.isBlank()
+                ? "跟随目标" : description;
+    }
     @Override public void pickup(Predicate<ItemStack> filter) {
         this.filter = entity -> entity instanceof ItemEntity item && filter.test(item.getItem());
         this.into = true;

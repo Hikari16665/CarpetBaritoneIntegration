@@ -98,6 +98,9 @@ public final class CollectItemProcess implements ICollectItemProcess {
                 baritone.settings().collectItemMaxDistance.value);
         this.scanRadius = Math.max(1,
                 (scanBlockRadius + 15) / 16);
+        baritone.getStatusMessenger().beginTask(
+                "收集物品并交付给 " + recipient.getScoreboardName());
+        baritone.getStatusMessenger().inventoryUnblocked();
         advanceToNextItem();
     }
 
@@ -135,6 +138,15 @@ public final class CollectItemProcess implements ICollectItemProcess {
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("");
         feedback.accept("收集任务结束：" + summary);
+        boolean complete = requestedItems.entrySet().stream().allMatch(
+                entry -> deliveredItems.getOrDefault(entry.getKey(), 0)
+                        >= entry.getValue());
+        if (complete) {
+            baritone.getStatusMessenger().taskComplete(
+                    "收集任务完成：" + summary);
+        } else {
+            baritone.getStatusMessenger().collectIncomplete(summary);
+        }
         onLostControl();
     }
 
@@ -320,6 +332,8 @@ public final class CollectItemProcess implements ICollectItemProcess {
             beginDelivery();
         } else if (inventoryBlocked) {
             feedback.accept("背包已满且当前物品无法取出，跳过该物品");
+            baritone.getStatusMessenger().inventoryBlocked(
+                    "收集物品", "目标物品无法放入背包");
             finishCurrentItem(true);
         } else {
             beginSearch();
@@ -330,12 +344,16 @@ public final class CollectItemProcess implements ICollectItemProcess {
         ServerPlayer recipient = recipient();
         if (recipient == null) {
             feedback.accept("接收玩家已离线，收集任务停止，物品保留在假人物品栏");
+            baritone.getStatusMessenger().targetUnavailable(
+                    "接收玩家", "玩家已离线");
             onLostControl();
             return;
         }
         ServerPlayer player = baritone.getPlayerContext().player();
         if (recipient.level() != player.level()) {
             feedback.accept("接收玩家不在同一维度，无法投递");
+            baritone.getStatusMessenger().targetUnavailable(
+                    recipient.getScoreboardName(), "不在同一维度");
             onLostControl();
             return;
         }
@@ -362,6 +380,7 @@ public final class CollectItemProcess implements ICollectItemProcess {
         item = activeItem;
         deliveredAmount = deliveredItems.getOrDefault(item, 0);
         player.inventoryMenu.broadcastChanges();
+        baritone.getStatusMessenger().inventoryUnblocked();
         if (deliveredAmount >= amount) {
             feedback.accept("已向 " + recipient.getScoreboardName()
                     + " 累计投递目标物品 " + deliveredAmount
