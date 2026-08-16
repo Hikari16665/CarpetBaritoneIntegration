@@ -48,4 +48,21 @@ public class OpenAiResponsesGatewayTest {
         assertEquals("", action.command());
         assertEquals("好的", action.message());
     }
+
+    @Test
+    public void resolvesBaseUrlAndAcceptsCompleteEndpoint() {
+        assertEquals("https://api.openai.com/v1/responses",
+                OpenAiResponsesGateway.responsesEndpoint(
+                        "https://api.openai.com/v1").toString());
+        assertEquals("http://127.0.0.1:8000/v1/responses",
+                OpenAiResponsesGateway.responsesEndpoint(
+                        "http://127.0.0.1:8000/v1/").toString());
+        assertEquals("https://proxy.example/openai/v1/responses",
+                OpenAiResponsesGateway.responsesEndpoint(
+                        "https://proxy.example/openai/v1/responses/")
+                        .toString());
+        assertEquals("https://proxy.example/v1/responses",
+                OpenAiResponsesGateway.responsesEndpoint(
+                        "https://proxy.example").toString());
+    }
 }
