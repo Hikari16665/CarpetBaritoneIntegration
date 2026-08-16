@@ -26,7 +26,7 @@ public final class OpenAiResponsesGateway {
             Configuration configuration, List<Message> messages) {
         ObjectNode body = requestBody(configuration.model(), messages);
         HttpRequest.Builder request = HttpRequest.newBuilder(
-                        endpoint(configuration.endpoint()))
+                        responsesEndpoint(configuration.baseUrl()))
                 .timeout(Duration.ofSeconds(configuration.timeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -119,19 +119,37 @@ public final class OpenAiResponsesGateway {
         return null;
     }
 
-    private static URI endpoint(String endpoint) {
+    static URI responsesEndpoint(String baseUrl) {
         URI uri;
         try {
-            uri = URI.create(endpoint.trim());
+            uri = URI.create(baseUrl.trim());
         } catch (IllegalArgumentException exception) {
-            throw new IllegalStateException("LLM endpoint is invalid", exception);
+            throw new IllegalStateException("LLM base URL is invalid", exception);
         }
         if (!("https".equalsIgnoreCase(uri.getScheme())
                 || "http".equalsIgnoreCase(uri.getScheme()))) {
             throw new IllegalStateException(
-                    "LLM endpoint must use http or https");
+                    "LLM base URL must use http or https");
         }
-        return uri;
+        if (uri.getQuery() != null || uri.getFragment() != null) {
+            throw new IllegalStateException(
+                    "LLM base URL cannot contain query or fragment");
+        }
+        String normalized = uri.toString();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        while (path.endsWith("/") && path.length() > 1) {
+            path = path.substring(0, path.length() - 1);
+        }
+        if (path.endsWith("/responses")) {
+            return URI.create(normalized);
+        }
+        if (path.isEmpty() || path.equals("/")) {
+            return URI.create(normalized + "/v1/responses");
+        }
+        return URI.create(normalized + "/responses");
     }
 
     private static String compact(String value, int maximum) {
@@ -142,7 +160,7 @@ public final class OpenAiResponsesGateway {
     }
 
     public record Configuration(
-            String endpoint, String model, String apiKey,
+            String baseUrl, String model, String apiKey,
             int timeoutSeconds) { }
 
     public record Message(String role, String content) { }
