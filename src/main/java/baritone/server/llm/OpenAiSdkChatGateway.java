@@ -13,13 +13,35 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.function.Function;
 
 /** Chat Completions transport backed by OpenAI's official Java SDK. */
 final class OpenAiSdkChatGateway {
+    private static final int THINKING_MAX_TOKENS = 4_096;
+    private static final int FALLBACK_MAX_TOKENS = 1_024;
 
     CompletableFuture<LlmAction> request(
             OpenAiResponsesGateway.Configuration configuration,
             java.util.List<OpenAiResponsesGateway.Message> messages) {
+        return requestAttempt(configuration, messages, true)
+                .handle((action, error) -> {
+                    if (error == null) {
+                        return CompletableFuture.completedFuture(action);
+                    }
+                    Throwable cause = unwrap(error);
+                    if (configuration.thinkingEnabled()
+                            && cause instanceof ThinkingBudgetExhaustedException) {
+                        return requestAttempt(configuration, messages, false);
+                    }
+                    return CompletableFuture.<LlmAction>failedFuture(cause);
+                })
+                .thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<LlmAction> requestAttempt(
+            OpenAiResponsesGateway.Configuration configuration,
+            java.util.List<OpenAiResponsesGateway.Message> messages,
+            boolean includeReasoningExtensions) {
         OpenAIOkHttpClientAsync.Builder clientBuilder =
                 OpenAIOkHttpClientAsync.builder()
                         .baseUrl(sdkBaseUrl(configuration.baseUrl()))
@@ -30,10 +52,16 @@ final class OpenAiSdkChatGateway {
                 configuration.apiKey());
         if (!apiKey.isBlank()) clientBuilder.apiKey(apiKey);
         OpenAIClientAsync client = clientBuilder.build();
+        boolean includeThinking = includeReasoningExtensions
+                && configuration.thinkingEnabled();
+        boolean includeReasoningEffort = includeReasoningExtensions
+                && !configuration.reasoningEffort().isBlank();
         ChatCompletionCreateParams.Builder params =
                 ChatCompletionCreateParams.builder()
                         .model(configuration.model())
-                        .maxTokens(512)
+                        .maxTokens(includeThinking || includeReasoningEffort
+                                ? THINKING_MAX_TOKENS
+                                : FALLBACK_MAX_TOKENS)
                         .responseFormat(ResponseFormatJsonObject
                                 .builder().build());
         for (OpenAiResponsesGateway.Message message : messages) {
@@ -43,11 +71,11 @@ final class OpenAiSdkChatGateway {
                 default -> params.addUserMessage(message.content());
             }
         }
-        if (configuration.thinkingEnabled()) {
+        if (includeThinking) {
             params.putAdditionalBodyProperty("thinking",
                     JsonValue.from(Map.of("type", "enabled")));
         }
-        if (!configuration.reasoningEffort().isBlank()) {
+        if (includeReasoningEffort) {
             params.putAdditionalBodyProperty("reasoning_effort",
                     JsonValue.from(configuration.reasoningEffort()));
         }
@@ -88,9 +116,13 @@ final class OpenAiSdkChatGateway {
             throw new IllegalStateException(
                     "LLM response contains no choices");
         }
-        String content = completion.choices().get(0).message()
-                .content().orElse("");
+        ChatCompletion.Choice choice = completion.choices().get(0);
+        String content = choice.message().content().orElse("");
         if (content.isBlank()) {
+            if ("length".equalsIgnoreCase(
+                    choice.finishReason().asString())) {
+                throw new ThinkingBudgetExhaustedException();
+            }
             throw new IllegalStateException(
                     "LLM response contains no assistant output");
         }
@@ -98,11 +130,7 @@ final class OpenAiSdkChatGateway {
     }
 
     private static IllegalStateException safeException(Throwable error) {
-        Throwable cause = error;
-        while (cause instanceof CompletionException
-                && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
+        Throwable cause = unwrap(error);
         if (cause instanceof OpenAIServiceException service) {
             return new IllegalStateException(
                     OpenAiResponsesGateway.httpError(
@@ -111,5 +139,21 @@ final class OpenAiSdkChatGateway {
         return new IllegalStateException(
                 "LLM SDK request failed: "
                         + cause.getClass().getSimpleName());
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable cause = error;
+        while (cause instanceof CompletionException
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
+    private static final class ThinkingBudgetExhaustedException
+            extends IllegalStateException {
+        private ThinkingBudgetExhaustedException() {
+            super("LLM thinking exhausted its output token budget");
+        }
     }
 }
