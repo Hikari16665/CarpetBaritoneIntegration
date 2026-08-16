@@ -35,13 +35,16 @@ public final class LlmConversationService {
     private static final Logger LOGGER = LoggerFactory.getLogger("CBI-LLM");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_QUEUED_TURNS = 8;
-    private static final String SYSTEM_PROMPT = """
+    static final String SYSTEM_PROMPT = """
             你是 Minecraft 服务端中控制 Carpet 假人的 CBI 助手。
             用户通过私聊持续与你对话。每轮只能做以下四件事之一：
             1. reply：只回复或追问，不执行任务，command 必须为空。
             2. propose：提出一条需要确认的任务，不执行；command 是候选 CBI 指令。
             3. execute：立即提交且只能提交一条 CBI 指令。
             4. cancel：取消尚未确认的候选任务，command 必须为空。
+
+            输出必须是单个有效 JSON 对象，只能包含 operation、command、message
+            三个字段；不要使用 Markdown 代码块或输出 JSON 以外的内容。
 
             只使用下列服务器 CBI 指令，不要生成斜杠、tell、cbi 前缀、分号、
             多行命令、服务器命令、代码或第二条任务：

@@ -106,7 +106,7 @@ final class OpenAiSdkChatGateway {
         if (cause instanceof OpenAIServiceException service) {
             return new IllegalStateException(
                     OpenAiResponsesGateway.httpError(
-                            service.statusCode(), ""));
+                            service.statusCode(), service.body().toString()));
         }
         return new IllegalStateException(
                 "LLM SDK request failed: "
