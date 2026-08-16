@@ -361,7 +361,8 @@ public final class LlmConversationService {
         int history = Math.max(2,
                 Math.min(32, settings.llmHistoryTurns.value));
         return new Configuration(new OpenAiResponsesGateway.Configuration(
-                baseUrl, model, apiKey, timeout),
+                baseUrl, settings.llmApiMode.value,
+                model, apiKey, timeout),
                 sessionTimeout, history);
     }
 
