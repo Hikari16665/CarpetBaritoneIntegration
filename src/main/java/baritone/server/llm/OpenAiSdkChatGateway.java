@@ -136,9 +136,24 @@ final class OpenAiSdkChatGateway {
                     OpenAiResponsesGateway.httpError(
                             service.statusCode(), service.body().toString()));
         }
+        Throwable root = cause;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String detail = cause.getMessage() == null ? "" : cause.getMessage();
+        if (root != cause) {
+            detail += "; caused by " + root.getClass().getSimpleName()
+                    + (root.getMessage() == null
+                    ? "" : ": " + root.getMessage());
+        }
+        detail = detail.replaceAll("\\s+", " ").trim();
+        if (detail.length() > 240) {
+            detail = detail.substring(0, 240) + "...";
+        }
         return new IllegalStateException(
                 "LLM SDK request failed: "
-                        + cause.getClass().getSimpleName());
+                        + cause.getClass().getSimpleName()
+                        + (detail.isEmpty() ? "" : ": " + detail));
     }
 
     private static Throwable unwrap(Throwable error) {
