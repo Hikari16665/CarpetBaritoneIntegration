@@ -265,6 +265,9 @@ final class SettingEditorScreen extends AbstractScreen {
             int x, int y, int width, String value, String hint) {
         EditBoxWidget box = new EditBoxWidget(
                 font, x, y, width, 20, Component.literal(hint));
+        // Minecraft's EditBox defaults to 32 characters. That silently
+        // truncated API keys (and could truncate custom endpoint URLs).
+        box.setMaxLength(2048);
         box.setHint(Component.literal(hint));
         box.setValue(value);
         addWidget(box);
