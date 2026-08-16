@@ -28,6 +28,11 @@ loom {
     }
 }
 
+configurations {
+    openaiSdk
+    implementation.extendsFrom(openaiSdk)
+}
+
 repositories {
     // Add repositories to retrieve artifacts from in here.
     // You should only use this when depending on other mods because
@@ -76,9 +81,25 @@ dependencies {
 
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
     implementation 'com.google.code.gson:gson:2.10.1'
+    openaiSdk 'com.openai:openai-java:4.46.0'
+    // Fabric does not provide the SDK at runtime. Nest the complete transitive
+    // SDK graph into the mod instead of requiring a separate library mod.
 
 
     implementation 'com.google.guava:guava:32.1.1-jre'
+}
+
+// Loom's include configuration is intentionally non-transitive. Resolve the
+// dedicated SDK graph, then re-add every artifact with its Maven identity so
+// processIncludeJars can create valid Fabric Jar-in-Jar metadata.
+afterEvaluate {
+    configurations.openaiSdk.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+        def id = artifact.moduleVersion.id
+        if (id.group == 'org.jetbrains' && id.name == 'annotations') return
+        dependencies.add('include', "${id.group}:${id.name}:${id.version}") {
+            transitive = false
+        }
+    }
 }
 
 processResources {

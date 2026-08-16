@@ -18,6 +18,8 @@ import java.util.concurrent.CompletableFuture;
 /** OpenAI-compatible Responses and Chat Completions client. */
 public final class OpenAiResponsesGateway {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private final OpenAiSdkChatGateway chatGateway =
+            new OpenAiSdkChatGateway();
     private final HttpClient client = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .version(HttpClient.Version.HTTP_1_1)
@@ -27,13 +29,11 @@ public final class OpenAiResponsesGateway {
             Configuration configuration, List<Message> messages) {
         Protocol protocol = protocol(
                 configuration.apiMode(), configuration.baseUrl());
-        ObjectNode body = protocol == Protocol.RESPONSES
-                ? requestBody(configuration.model(), messages)
-                : chatCompletionsRequestBody(
-                        configuration.model(), messages);
-        URI endpoint = protocol == Protocol.RESPONSES
-                ? responsesEndpoint(configuration.baseUrl())
-                : chatCompletionsEndpoint(configuration.baseUrl());
+        if (protocol == Protocol.CHAT_COMPLETIONS) {
+            return chatGateway.request(configuration, messages);
+        }
+        ObjectNode body = requestBody(configuration.model(), messages);
+        URI endpoint = responsesEndpoint(configuration.baseUrl());
         HttpRequest.Builder request = HttpRequest.newBuilder(
                         endpoint)
                 .timeout(Duration.ofSeconds(configuration.timeoutSeconds()))
@@ -50,7 +50,7 @@ public final class OpenAiResponsesGateway {
         return client.sendAsync(request.build(),
                         HttpResponse.BodyHandlers.ofString(
                                 StandardCharsets.UTF_8))
-                .thenApply(response -> decode(response, protocol));
+                .thenApply(OpenAiResponsesGateway::decode);
     }
 
     static ObjectNode requestBody(String model, List<Message> messages) {
@@ -83,37 +83,14 @@ public final class OpenAiResponsesGateway {
         return root;
     }
 
-    static ObjectNode chatCompletionsRequestBody(
-            String model, List<Message> messages) {
-        ObjectNode root = MAPPER.createObjectNode();
-        root.put("model", model);
-        root.put("stream", false);
-        root.put("max_tokens", 512);
-        ArrayNode serialized = root.putArray("messages");
-        for (Message message : messages) {
-            ObjectNode item = serialized.addObject();
-            item.put("role", message.role());
-            item.put("content", message.content());
-        }
-        root.putObject("response_format").put("type", "json_object");
-        return root;
-    }
-
     static LlmAction decode(HttpResponse<String> response) {
-        return decode(response, Protocol.RESPONSES);
-    }
-
-    private static LlmAction decode(
-            HttpResponse<String> response, Protocol protocol) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException(httpError(
                     response.statusCode(), response.body()));
         }
         try {
             JsonNode root = MAPPER.readTree(response.body());
-            String output = protocol == Protocol.RESPONSES
-                    ? extractOutputText(root)
-                    : extractChatCompletionText(root);
+            String output = extractOutputText(root);
             if (output == null || output.isBlank()) {
                 throw new IllegalStateException(
                         "LLM response contains no assistant output");
@@ -125,12 +102,6 @@ public final class OpenAiResponsesGateway {
             throw new IllegalStateException(
                     "Unable to decode LLM response", exception);
         }
-    }
-
-    static String extractChatCompletionText(JsonNode root) {
-        JsonNode content = root.path("choices").path(0)
-                .path("message").path("content");
-        return content.isTextual() ? content.asText() : null;
     }
 
     static String extractOutputText(JsonNode root) {
@@ -176,23 +147,6 @@ public final class OpenAiResponsesGateway {
         return URI.create(normalized + "/responses");
     }
 
-    static URI chatCompletionsEndpoint(String baseUrl) {
-        URI uri = baseUri(baseUrl);
-        String normalized = trimTrailingSlashes(uri.toString());
-        String path = trimTrailingSlashes(
-                uri.getPath() == null ? "" : uri.getPath());
-        if (path.endsWith("/chat/completions")) {
-            return URI.create(normalized);
-        }
-        if (path.isEmpty() || path.equals("/")) {
-            if (isDeepSeek(uri)) {
-                return URI.create(normalized + "/chat/completions");
-            }
-            return URI.create(normalized + "/v1/chat/completions");
-        }
-        return URI.create(normalized + "/chat/completions");
-    }
-
     static Protocol protocol(LlmApiMode mode, String baseUrl) {
         if (mode == LlmApiMode.RESPONSES) return Protocol.RESPONSES;
         if (mode == LlmApiMode.CHAT_COMPLETIONS) {
@@ -229,7 +183,7 @@ public final class OpenAiResponsesGateway {
         return uri;
     }
 
-    private static boolean isDeepSeek(URI uri) {
+    static boolean isDeepSeek(URI uri) {
         String host = uri.getHost();
         return host != null && (host.equalsIgnoreCase("api.deepseek.com")
                 || host.toLowerCase(java.util.Locale.ROOT)
@@ -278,7 +232,8 @@ public final class OpenAiResponsesGateway {
     public record Configuration(
             String baseUrl, LlmApiMode apiMode,
             String model, String apiKey,
-            int timeoutSeconds) { }
+            int timeoutSeconds, boolean thinkingEnabled,
+            String reasoningEffort) { }
 
     public record Message(String role, String content) { }
 
