@@ -4,9 +4,14 @@ import baritone.api.LlmApiMode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.Test;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -146,5 +151,48 @@ public class OpenAiResponsesGatewayTest {
         assertFalse(unauthorized.contains("7ca4"));
         assertFalse(forbidden.contains("7ca4"));
         assertTrue(unauthorized.contains("llmApiKey"));
+    }
+
+    @Test
+    public void sendsExactChatEndpointAndSingleBearerHeader()
+            throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> path = new AtomicReference<>();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server.createContext("/chat/completions", exchange -> {
+            path.set(exchange.getRequestURI().getPath());
+            authorization.set(exchange.getRequestHeaders()
+                    .getFirst("Authorization"));
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = ("{\"choices\":[{\"message\":{"
+                    + "\"content\":\"{\\\"operation\\\":\\\"reply\\\","
+                    + "\\\"command\\\":\\\"\\\",\\\"message\\\":\\\"ok\\\"}\"}}]}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:"
+                    + server.getAddress().getPort()
+                    + "/chat/completions";
+            LlmAction action = new OpenAiResponsesGateway().request(
+                    new OpenAiResponsesGateway.Configuration(
+                            endpoint, LlmApiMode.AUTO, "test-model",
+                            "Bearer sk-local-test", 5),
+                    List.of(new OpenAiResponsesGateway.Message(
+                            "user", "return json")))
+                    .get(5, TimeUnit.SECONDS);
+
+            assertEquals("/chat/completions", path.get());
+            assertEquals("Bearer sk-local-test", authorization.get());
+            assertEquals(LlmAction.Operation.REPLY, action.operation());
+        } finally {
+            server.stop(0);
+        }
     }
 }
