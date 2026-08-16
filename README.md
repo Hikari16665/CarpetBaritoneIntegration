@@ -33,8 +33,34 @@
 
 ## 操作与设置  
 为了方便更好的操作假人，本模组提供了两种操控方式：
-  - 私聊操作：使用/tell *<假人名称>* cbi 命令 来进行控制
+  - 自然语言私聊：`/tell <假人名称> 帮我挖 16 个钻石矿`。发送给
+    Carpet 假人的所有非 `cbi` 前缀私聊都会进入独立的连续 AI 会话。
+  - 精确指令：`/tell <假人名称> cbi <命令>`。`cbi` 前缀不会经过
+    AI，可用于帮助、设置和确定性控制。
   - GUI操作：在客户端安装此模组，按住B（按键可后期调整）进行控制。
+
+### AI 自然语言控制
+
+服务端默认连接 OpenAI Responses API，并从 `OPENAI_API_KEY` 环境变量
+读取密钥。密钥不会写入模组配置、同步给客户端或输出到日志。例如在同一个
+PowerShell 窗口中启动服务端前设置：
+
+```powershell
+$env:OPENAI_API_KEY="你的 API Key"
+```
+
+模型、接口地址、请求超时、会话超时和历史轮数均可通过现有设置系统修改，
+例如：
+
+```text
+/tell Steve cbi settings default llmModel gpt-5.6-luna
+/tell Steve cbi settings default llmEndpoint https://api.openai.com/v1/responses
+```
+
+会话按“发送者 + 假人”隔离。模型每轮只能回复、提出待确认任务、执行一条
+白名单 CBI 指令或取消待确认任务。`clean`、直接放置和直接破坏等修改方块的
+指令必须先提出并由玩家下一轮明确确认。发送者的位置、维度、在线玩家列表和
+假人的当前选区会随每轮请求更新。
 
 ## 许可证
 本模组包含来自多个模组的源代码，其许可证如下：
