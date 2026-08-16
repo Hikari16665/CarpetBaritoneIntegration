@@ -200,6 +200,13 @@ final class SettingPresentation {
             case "fakePlayerTargetUnavailableMessage" -> "目标不可用消息";
             case "fakePlayerStuckMessage" -> "持续卡住消息";
             case "fakePlayerTaskCompleteMessage" -> "长任务完成消息";
+            case "llmEnabled" -> "启用 AI 自然语言控制";
+            case "llmEndpoint" -> "AI 响应接口地址";
+            case "llmModel" -> "AI 模型";
+            case "llmApiKeyEnvironment" -> "AI 密钥环境变量名";
+            case "llmRequestTimeoutSeconds" -> "AI 请求超时秒数";
+            case "llmSessionTimeoutSeconds" -> "AI 会话超时秒数";
+            case "llmHistoryTurns" -> "AI 会话历史轮数";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "trashDiscardEnabled" -> "任务中自动丢弃垃圾";
@@ -245,6 +252,7 @@ final class SettingPresentation {
         if (key.startsWith("elytra")) return "鞘翅飞行";
         if (key.startsWith("farm") || key.startsWith("replant")) return "农场";
         if (key.startsWith("follow")) return "跟随";
+        if (key.startsWith("llm")) return "AI 自然语言控制";
         if (key.startsWith("fakePlayer") && key.contains("Message")) {
             return "公屏状态消息";
         }
@@ -310,6 +318,13 @@ final class SettingPresentation {
             case "printerRange" -> "打印机从假人当前位置执行蓝图动作的最大距离。";
             case "printerContainerRefill" -> "建造材料不足时，允许从配置的取货选区或附近容器补货。";
             case "printerContainerRefillBatch" -> "单次自动取货允许携带的最大物品数；Builder 会先估算蓝图剩余需求，再在此上限和背包容量内尽量一次取足。";
+            case "llmEnabled" -> "开启后，发给 Carpet 假人的所有非 cbi 前缀私聊都会进入 AI 连续会话；cbi 前缀始终保留为确定性的原始指令入口。";
+            case "llmEndpoint" -> "兼容 OpenAI Responses API 的完整地址；默认使用官方 /v1/responses。只允许 http 或 https。";
+            case "llmModel" -> "提交自然语言任务时使用的模型名称。模型必须支持 Responses API 的严格 JSON Schema 输出。";
+            case "llmApiKeyEnvironment" -> "服务端进程中保存 API Key 的环境变量名，默认 OPENAI_API_KEY；Key 本身不会写入配置、同步给客户端或输出到日志。留空可连接无需鉴权的本地端点。";
+            case "llmRequestTimeoutSeconds" -> "单轮模型 HTTP 请求的最长等待时间；请求异步执行，不会阻塞服务器 tick。";
+            case "llmSessionTimeoutSeconds" -> "发送者与单个假人的连续会话在无新消息后保留多久；超时后历史和待确认任务会丢弃。";
+            case "llmHistoryTurns" -> "每次请求最多重放多少轮对话。历史按发送者与假人隔离，并包含每轮受控的玩家位置和选区状态。";
             case "diagnosticLogging" -> "向服务器日志输出 CBI 寻路、建造与交互诊断信息。";
             default -> category(key) + "设置：“" + name(key)
                     + "”。修改后会影响所有现有假人和以后创建的假人。";

@@ -63,20 +63,14 @@ public final class BasicGoalCommandHandler {
     public static boolean handle(ServerPlayer sender, ServerPlayer target, String message) {
         String trimmed = message.trim();
         String lower = trimmed.toLowerCase(Locale.ROOT);
-        String prefix;
-        if (lower.equals("cbi") || lower.startsWith("cbi ")) {
-            prefix = "cbi";
-        } else if (lower.equals("baritone")
-                || lower.startsWith("baritone ")) {
-            prefix = "baritone";
-        } else {
+        if (!(lower.equals("cbi") || lower.startsWith("cbi "))) {
             return false;
         }
         if (!(target instanceof EntityPlayerMPFake)) {
             return false;
         }
 
-        String command = trimmed.substring(prefix.length()).trim();
+        String command = trimmed.substring("cbi".length()).trim();
         ExecutionResult result = executeDirect(sender, target, command);
         if (!result.success()) {
             reply(target, sender, result.message());
@@ -1814,7 +1808,7 @@ public final class BasicGoalCommandHandler {
         reply(fakePlayer, sender,
                 "管理: pos1, pos2, sel, waypoint, settings, pause, resume, stop, status, stats");
         reply(fakePlayer, sender,
-                "格式: /tell <假人> baritone <命令>；也可使用前缀 cbi");
+                "格式: /tell <假人> cbi <命令>；不带 cbi 前缀的私聊会交给 AI");
     }
 
     private static void reply(ServerPlayer fakePlayer, ServerPlayer recipient, String message) {
