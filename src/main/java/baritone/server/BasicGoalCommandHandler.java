@@ -1293,7 +1293,7 @@ public final class BasicGoalCommandHandler {
             for (Field field : shown.subList(from, to)) {
                 Settings.Setting<?> setting = readSetting(settings, field);
                 reply(fakePlayer, sender, field.getName() + " = "
-                        + settingValue(setting.value));
+                        + displaySettingValue(field, setting.value));
             }
             return;
         }
@@ -1322,7 +1322,7 @@ public final class BasicGoalCommandHandler {
             setting.reset();
             recalculateAfterSettingChange(baritone);
             reply(fakePlayer, sender, field.getName() + " 已恢复为 "
-                    + settingValue(setting.value));
+                    + displaySettingValue(field, setting.value));
             return;
         }
 
@@ -1348,17 +1348,18 @@ public final class BasicGoalCommandHandler {
         Settings.Setting<?> setting = readSetting(settings, field);
         if (args.length == 2) {
             reply(fakePlayer, sender, field.getName() + " = "
-                    + settingValue(setting.value) + "（默认 "
-                    + settingValue(setting.defaultValue) + "）");
+                    + displaySettingValue(field, setting.value) + "（默认 "
+                    + displaySettingValue(field, setting.defaultValue) + "）");
             return;
         }
         Object parsed = parseSettingValue(
                 field, setting.defaultValue,
                 settingText(setting.defaultValue, args, 2));
+        parsed = normalizeSettingValue(field, parsed);
         setSettingValue(setting, parsed);
         recalculateAfterSettingChange(baritone);
         reply(fakePlayer, sender, field.getName() + " = "
-                + settingValue(setting.value));
+                + displaySettingValue(field, setting.value));
     }
 
     private static void manageSettingDefault(
@@ -1380,7 +1381,7 @@ public final class BasicGoalCommandHandler {
             ServerSettingsStore.restoreFactoryDefault(field, setting);
             reply(fakePlayer, sender, field.getName()
                     + " 的持久默认值已恢复为内置值 "
-                    + settingValue(setting.defaultValue));
+                    + displaySettingValue(field, setting.defaultValue));
             return;
         }
         if (args.length < 3) {
@@ -1393,10 +1394,11 @@ public final class BasicGoalCommandHandler {
         Object value = args.length == 3 ? setting.value
                 : parseSettingValue(field, setting.factoryDefaultValue,
                         settingText(setting.factoryDefaultValue, args, 3));
+        value = normalizeSettingValue(field, value);
         ServerSettingsStore.setDefault(field, setting, value);
         reply(fakePlayer, sender, field.getName()
                 + " 已设为持久默认值 "
-                + settingValue(setting.defaultValue)
+                + displaySettingValue(field, setting.defaultValue)
                 + "；当前及后续假人将使用该值");
     }
 
@@ -1637,6 +1639,22 @@ public final class BasicGoalCommandHandler {
             return String.format("#%08X", color.getRGB());
         }
         return String.valueOf(value);
+    }
+
+    static String displaySettingValue(Field field, Object value) {
+        if (field.getName().equals("llmApiKey")) {
+            return value instanceof String text && !text.isBlank()
+                    ? "<已配置>" : "<未配置>";
+        }
+        return settingValue(value);
+    }
+
+    private static Object normalizeSettingValue(Field field, Object value) {
+        if (!field.getName().equals("llmApiKey")
+                || !(value instanceof String text)) return value;
+        String trimmed = text.trim();
+        return trimmed.equalsIgnoreCase("none")
+                || trimmed.equalsIgnoreCase("clear") ? "" : trimmed;
     }
 
     private static void recalculateAfterSettingChange(Baritone baritone) {

@@ -85,6 +85,7 @@ final class SettingEditorScreen extends AbstractScreen {
             case "BLOCK_LIST", "ITEM_LIST", "STRING_LIST" ->
                     initList(left, top + 42);
             case "BLOCK_MAP" -> initMap(left, top + 42);
+            case "SECRET" -> initSecret(left, top + 42);
             default -> initNumber(left, top + 42);
         }
         addWidget(new ButtonWidget(left, top + 174, 78, 22,
@@ -120,6 +121,22 @@ final class SettingEditorScreen extends AbstractScreen {
                 Component.literal("÷10"), button -> scaleNumber(0.1D)));
         addWidget(new ButtonWidget(x + 270, y + 28, 70, 20,
                 Component.literal("×10"), button -> scaleNumber(10D)));
+    }
+
+    private void initSecret(int x, int y) {
+        number = edit(x, y, 340, "", "输入新的 API Key（旧值不会下发）");
+        addComponent(new TextComponent(x, y + 26,
+                Component.literal("留空并返回不会修改；输入新值后使用底部按钮保存")));
+        addWidget(new ButtonWidget(x, y + 50, 165, 20,
+                Component.literal("清除当前密钥"), button -> {
+                    send("settings " + option.name() + " none");
+                    minecraft.setScreen(parent);
+                }));
+        addWidget(new ButtonWidget(x + 175, y + 50, 165, 20,
+                Component.literal("清除持久密钥"), button -> {
+                    send("settings default " + option.name() + " none");
+                    minecraft.setScreen(parent);
+                }));
     }
 
     private void initEnum(int x, int y) {
@@ -391,19 +408,28 @@ final class SettingEditorScreen extends AbstractScreen {
 
     private void apply() {
         encoded = editorValue();
+        if (option.type().equals("SECRET") && encoded.isBlank()) {
+            minecraft.setScreen(parent);
+            return;
+        }
         send("settings " + option.name() + " " + encoded);
         minecraft.gui.setScreen(parent);
     }
 
     private void applyDefault() {
         encoded = editorValue();
+        if (option.type().equals("SECRET") && encoded.isBlank()) {
+            minecraft.setScreen(parent);
+            return;
+        }
         send("settings default " + option.name() + " " + encoded);
         minecraft.gui.setScreen(parent);
     }
 
     private String editorValue() {
         return switch (option.type()) {
-            case "INTEGER", "LONG", "FLOAT", "DOUBLE", "STRING" ->
+            case "INTEGER", "LONG", "FLOAT", "DOUBLE", "STRING",
+                    "SECRET" ->
                     number.getValue().trim();
             case "VECTOR" -> vectorX.getValue().trim() + ","
                     + vectorY.getValue().trim() + ","

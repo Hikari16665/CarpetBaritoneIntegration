@@ -345,22 +345,14 @@ public final class LlmConversationService {
     }
 
     private static Configuration configuration(Settings settings) {
-        String endpoint = settings.llmEndpoint.value.trim();
+        String baseUrl = settings.llmBaseUrl.value.trim();
         String model = settings.llmModel.value.trim();
-        if (endpoint.isEmpty()) {
-            throw new IllegalStateException("LLM 地址未配置");
+        String apiKey = settings.llmApiKey.value.trim();
+        if (baseUrl.isEmpty()) {
+            throw new IllegalStateException("LLM Base URL 未配置");
         }
         if (model.isEmpty()) {
             throw new IllegalStateException("LLM 模型未配置");
-        }
-        String environment = settings.llmApiKeyEnvironment.value.trim();
-        String apiKey = environment.isEmpty()
-                ? "" : System.getenv(environment);
-        if (!environment.isEmpty()
-                && (apiKey == null || apiKey.isBlank())) {
-            throw new IllegalStateException("找不到环境变量 "
-                    + environment + "；请在服务端配置 API Key，或将 "
-                    + "llmApiKeyEnvironment 设为空以连接无需鉴权的端点");
         }
         int timeout = Math.max(5,
                 Math.min(300, settings.llmRequestTimeoutSeconds.value));
@@ -369,7 +361,7 @@ public final class LlmConversationService {
         int history = Math.max(2,
                 Math.min(32, settings.llmHistoryTurns.value));
         return new Configuration(new OpenAiResponsesGateway.Configuration(
-                endpoint, model, apiKey == null ? "" : apiKey, timeout),
+                baseUrl, model, apiKey, timeout),
                 sessionTimeout, history);
     }
 
