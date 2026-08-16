@@ -10,15 +10,24 @@ import org.junit.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class OpenAiResponsesGatewayTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    public void jsonObjectPromptExplicitlyNamesJson() {
+        assertTrue(LlmConversationService.SYSTEM_PROMPT
+                .toLowerCase(Locale.ROOT).contains("json"));
+    }
 
     @Test
     public void requestUsesStrictJsonSchemaAndNoRemoteStorage() {
@@ -173,6 +182,46 @@ public class OpenAiResponsesGatewayTest {
             assertEquals("enabled", body.path("thinking")
                     .path("type").asText());
             assertEquals("high", body.path("reasoning_effort").asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void chatErrorsPreserveProviderExplanation() throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = ("{\"error\":{\"message\":"
+                    + "\"Prompt must contain the word json\","
+                    + "\"type\":\"invalid_request_error\","
+                    + "\"code\":\"invalid_request_error\"}}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(400, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:"
+                    + server.getAddress().getPort()
+                    + "/chat/completions";
+            try {
+                new OpenAiResponsesGateway().request(
+                        new OpenAiResponsesGateway.Configuration(
+                                endpoint, LlmApiMode.AUTO, "test-model",
+                                "sk-local-test", 5, true, "high"),
+                        List.of(new OpenAiResponsesGateway.Message(
+                                "user", "return json")))
+                        .get(5, TimeUnit.SECONDS);
+                fail("Expected the provider error to propagate");
+            } catch (ExecutionException exception) {
+                assertTrue(exception.getCause().getMessage()
+                        .contains("Prompt must contain the word json"));
+            }
         } finally {
             server.stop(0);
         }
