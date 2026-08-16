@@ -40,22 +40,6 @@ public class OpenAiResponsesGatewayTest {
     }
 
     @Test
-    public void chatCompletionsUsesJsonObjectOutput() {
-        ObjectNode body = OpenAiResponsesGateway.chatCompletionsRequestBody(
-                "deepseek-chat", List.of(
-                        new OpenAiResponsesGateway.Message(
-                                "system", "return json"),
-                        new OpenAiResponsesGateway.Message(
-                                "user", "request")));
-
-        assertEquals("deepseek-chat", body.path("model").asText());
-        assertEquals("json_object", body.path("response_format")
-                .path("type").asText());
-        assertEquals(2, body.path("messages").size());
-        assertEquals(512, body.path("max_tokens").asInt());
-    }
-
-    @Test
     public void extractsNestedResponsesApiOutputText() throws Exception {
         JsonNode response = MAPPER.readTree("""
                 {"id":"resp_1","output":[{"type":"message","content":[
@@ -68,21 +52,6 @@ public class OpenAiResponsesGatewayTest {
                 OpenAiResponsesGateway.extractOutputText(response));
         assertEquals(LlmAction.Operation.REPLY, action.operation());
         assertEquals("", action.command());
-        assertEquals("好的", action.message());
-    }
-
-    @Test
-    public void extractsChatCompletionsAssistantJson() throws Exception {
-        JsonNode response = MAPPER.readTree("""
-                {"choices":[{"message":{"role":"assistant","content":
-                "{\\"operation\\":\\"reply\\",\\"command\\":\\"\\",\\"message\\":\\"好的\\"}"
-                }}]}
-                """);
-
-        LlmAction action = LlmAction.parse(
-                OpenAiResponsesGateway.extractChatCompletionText(response));
-
-        assertEquals(LlmAction.Operation.REPLY, action.operation());
         assertEquals("好的", action.message());
     }
 
@@ -101,12 +70,12 @@ public class OpenAiResponsesGatewayTest {
         assertEquals("https://proxy.example/v1/responses",
                 OpenAiResponsesGateway.responsesEndpoint(
                         "https://proxy.example").toString());
-        assertEquals("https://api.deepseek.com/chat/completions",
-                OpenAiResponsesGateway.chatCompletionsEndpoint(
-                        "https://api.deepseek.com").toString());
-        assertEquals("http://127.0.0.1:8000/v1/chat/completions",
-                OpenAiResponsesGateway.chatCompletionsEndpoint(
-                        "http://127.0.0.1:8000/v1/").toString());
+        assertEquals("https://api.deepseek.com",
+                OpenAiSdkChatGateway.sdkBaseUrl(
+                        "https://api.deepseek.com"));
+        assertEquals("http://127.0.0.1:8000/v1",
+                OpenAiSdkChatGateway.sdkBaseUrl(
+                        "http://127.0.0.1:8000/v1/chat/completions"));
     }
 
     @Test
@@ -160,12 +129,18 @@ public class OpenAiResponsesGatewayTest {
                 new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<String> path = new AtomicReference<>();
         AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
         server.createContext("/chat/completions", exchange -> {
             path.set(exchange.getRequestURI().getPath());
             authorization.set(exchange.getRequestHeaders()
                     .getFirst("Authorization"));
-            exchange.getRequestBody().readAllBytes();
-            byte[] response = ("{\"choices\":[{\"message\":{"
+            requestBody.set(new String(exchange.getRequestBody()
+                    .readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = ("{\"id\":\"chatcmpl_test\","
+                    + "\"created\":0,\"model\":\"test-model\","
+                    + "\"object\":\"chat.completion\","
+                    + "\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{"
+                    + "\"role\":\"assistant\","
                     + "\"content\":\"{\\\"operation\\\":\\\"reply\\\","
                     + "\\\"command\\\":\\\"\\\",\\\"message\\\":\\\"ok\\\"}\"}}]}")
                     .getBytes(StandardCharsets.UTF_8);
@@ -183,7 +158,8 @@ public class OpenAiResponsesGatewayTest {
             LlmAction action = new OpenAiResponsesGateway().request(
                     new OpenAiResponsesGateway.Configuration(
                             endpoint, LlmApiMode.AUTO, "test-model",
-                            "Bearer sk-local-test", 5),
+                            "Bearer sk-local-test", 5,
+                            true, "high"),
                     List.of(new OpenAiResponsesGateway.Message(
                             "user", "return json")))
                     .get(5, TimeUnit.SECONDS);
@@ -191,6 +167,12 @@ public class OpenAiResponsesGatewayTest {
             assertEquals("/chat/completions", path.get());
             assertEquals("Bearer sk-local-test", authorization.get());
             assertEquals(LlmAction.Operation.REPLY, action.operation());
+            JsonNode body = MAPPER.readTree(requestBody.get());
+            assertEquals("json_object", body.path("response_format")
+                    .path("type").asText());
+            assertEquals("enabled", body.path("thinking")
+                    .path("type").asText());
+            assertEquals("high", body.path("reasoning_effort").asText());
         } finally {
             server.stop(0);
         }

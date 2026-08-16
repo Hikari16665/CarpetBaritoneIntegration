@@ -362,7 +362,9 @@ public final class LlmConversationService {
                 Math.min(32, settings.llmHistoryTurns.value));
         return new Configuration(new OpenAiResponsesGateway.Configuration(
                 baseUrl, settings.llmApiMode.value,
-                model, apiKey, timeout),
+                model, apiKey, timeout,
+                settings.llmThinkingEnabled.value,
+                settings.llmReasoningEffort.value.trim()),
                 sessionTimeout, history);
     }
 
