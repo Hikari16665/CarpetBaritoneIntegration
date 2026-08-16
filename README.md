@@ -47,13 +47,25 @@
 
 ```text
 /tell Steve cbi settings default llmBaseUrl https://api.openai.com/v1
+/tell Steve cbi settings default llmApiMode auto
 /tell Steve cbi settings default llmModel gpt-5.6-luna
 /tell Steve cbi settings default llmApiKey <你的 API Key>
 ```
 
+`llmApiMode` 支持 `auto`、`responses` 和 `chat_completions`。`auto` 默认
+为 OpenAI 使用 Responses API；当地址是 DeepSeek 或完整地址以
+`/chat/completions` 结尾时改用 Chat Completions。DeepSeek 示例：
+
+```text
+/tell Steve cbi settings default llmBaseUrl https://api.deepseek.com
+/tell Steve cbi settings default llmApiMode auto
+/tell Steve cbi settings default llmModel deepseek-chat
+```
+
 持久 API Key 会明文保存在服务端的 CBI 默认设置文件中。聊天查询、日志与
 发送给客户端的设置数据只会显示掩码，不会返回密钥原文。无需鉴权的本地端点
-可以把 `llmApiKey` 留空。
+可以把 `llmApiKey` 留空。配置密钥时直接粘贴原始值即可；误带的 `Bearer `
+前缀或一层引号会在发送请求前自动清理。
 
 会话按“发送者 + 假人”隔离。模型每轮只能回复、提出待确认任务、执行一条
 白名单 CBI 指令或取消待确认任务。`clean`、直接放置和直接破坏等修改方块的
