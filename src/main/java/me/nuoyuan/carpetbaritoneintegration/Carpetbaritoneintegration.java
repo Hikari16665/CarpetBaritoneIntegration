@@ -37,6 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import baritone.utils.schematic.SchematicSystem;
 import me.nuoyuan.carpetbaritoneintegration.compat.SyncmaticaBridge;
+import baritone.server.llm.LlmConversationService;
 
 public class Carpetbaritoneintegration implements ModInitializer {
     public static final ServerBaritoneRegistry BARITONES = new ServerBaritoneRegistry();
@@ -137,7 +138,10 @@ public class Carpetbaritoneintegration implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTING.register(
                 server -> ServerSettingsStore.load());
         ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> BARITONES.clear());
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            LlmConversationService.INSTANCE.clear();
+            BARITONES.clear();
+        });
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
             if (Baritone.settings().repackOnAnyBlockChange.value
                     && world instanceof ServerLevel level) {

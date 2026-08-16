@@ -102,6 +102,21 @@ public final class Settings {
      * continue without a real player online. */
     public final Setting<Boolean> keepServerAwakeForTasks =
             new Setting<>(true);
+    /** Natural-language tell routing. The API key itself is intentionally
+     * read from a server environment variable and is never stored here. */
+    public final Setting<Boolean> llmEnabled = new Setting<>(true);
+    public final Setting<String> llmEndpoint =
+            new Setting<>("https://api.openai.com/v1/responses");
+    public final Setting<String> llmModel =
+            new Setting<>("gpt-5.6-luna");
+    public final Setting<String> llmApiKeyEnvironment =
+            new Setting<>("OPENAI_API_KEY");
+    public final Setting<Integer> llmRequestTimeoutSeconds =
+            new Setting<>(45);
+    public final Setting<Integer> llmSessionTimeoutSeconds =
+            new Setting<>(1800);
+    public final Setting<Integer> llmHistoryTurns =
+            new Setting<>(12);
     /** Kept for Builder API/settings compatibility. On a dedicated server the
      * completion notification is delivered through the command feedback
      * channel instead of a client desktop notification. */

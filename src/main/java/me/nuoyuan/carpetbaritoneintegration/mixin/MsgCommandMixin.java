@@ -1,6 +1,7 @@
 package me.nuoyuan.carpetbaritoneintegration.mixin;
 
 import baritone.server.BasicGoalCommandHandler;
+import baritone.server.llm.LlmConversationService;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.server.commands.MsgCommand;
@@ -27,7 +28,13 @@ public abstract class MsgCommandMixin {
         }
         boolean handled = false;
         for (ServerPlayer target : targets) {
-            handled |= BasicGoalCommandHandler.handle(sender, target, message.signedContent());
+            if (BasicGoalCommandHandler.handle(
+                    sender, target, message.signedContent())) {
+                handled = true;
+            } else if (LlmConversationService.INSTANCE.handle(
+                    sender, target, message.signedContent())) {
+                handled = true;
+            }
         }
         if (handled) {
             ci.cancel();
