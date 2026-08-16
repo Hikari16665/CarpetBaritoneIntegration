@@ -201,9 +201,9 @@ final class SettingPresentation {
             case "fakePlayerStuckMessage" -> "持续卡住消息";
             case "fakePlayerTaskCompleteMessage" -> "长任务完成消息";
             case "llmEnabled" -> "启用 AI 自然语言控制";
-            case "llmEndpoint" -> "AI 响应接口地址";
+            case "llmBaseUrl" -> "AI 基础接口地址";
             case "llmModel" -> "AI 模型";
-            case "llmApiKeyEnvironment" -> "AI 密钥环境变量名";
+            case "llmApiKey" -> "AI 接口密钥";
             case "llmRequestTimeoutSeconds" -> "AI 请求超时秒数";
             case "llmSessionTimeoutSeconds" -> "AI 会话超时秒数";
             case "llmHistoryTurns" -> "AI 会话历史轮数";
@@ -319,9 +319,9 @@ final class SettingPresentation {
             case "printerContainerRefill" -> "建造材料不足时，允许从配置的取货选区或附近容器补货。";
             case "printerContainerRefillBatch" -> "单次自动取货允许携带的最大物品数；Builder 会先估算蓝图剩余需求，再在此上限和背包容量内尽量一次取足。";
             case "llmEnabled" -> "开启后，发给 Carpet 假人的所有非 cbi 前缀私聊都会进入 AI 连续会话；cbi 前缀始终保留为确定性的原始指令入口。";
-            case "llmEndpoint" -> "兼容 OpenAI Responses API 的完整地址；默认使用官方 /v1/responses。只允许 http 或 https。";
+            case "llmBaseUrl" -> "兼容 OpenAI Responses API 的基础地址，例如 https://api.openai.com/v1；会自动补全 /responses，也兼容直接填写完整接口地址。";
             case "llmModel" -> "提交自然语言任务时使用的模型名称。模型必须支持 Responses API 的严格 JSON Schema 输出。";
-            case "llmApiKeyEnvironment" -> "服务端进程中保存 API Key 的环境变量名，默认 OPENAI_API_KEY；Key 本身不会写入配置、同步给客户端或输出到日志。留空可连接无需鉴权的本地端点。";
+            case "llmApiKey" -> "Responses API 的鉴权密钥；设为持久默认值后会明文保存在服务端配置文件中，但聊天查询、日志和客户端设置同步只显示掩码。留空可连接无需鉴权的本地端点。";
             case "llmRequestTimeoutSeconds" -> "单轮模型 HTTP 请求的最长等待时间；请求异步执行，不会阻塞服务器 tick。";
             case "llmSessionTimeoutSeconds" -> "发送者与单个假人的连续会话在无新消息后保留多久；超时后历史和待确认任务会丢弃。";
             case "llmHistoryTurns" -> "每次请求最多重放多少轮对话。历史按发送者与假人隔离，并包含每轮受控的玩家位置和选区状态。";
