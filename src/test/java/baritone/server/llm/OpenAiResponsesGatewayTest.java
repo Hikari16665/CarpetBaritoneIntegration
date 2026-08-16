@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
@@ -182,6 +183,71 @@ public class OpenAiResponsesGatewayTest {
             assertEquals("enabled", body.path("thinking")
                     .path("type").asText());
             assertEquals("high", body.path("reasoning_effort").asText());
+            assertEquals(4096, body.path("max_tokens").asInt());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void retriesWithoutThinkingWhenThinkingConsumesBudget()
+            throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<String> fallbackBody = new AtomicReference<>();
+        server.createContext("/chat/completions", exchange -> {
+            String body = new String(exchange.getRequestBody()
+                    .readAllBytes(), StandardCharsets.UTF_8);
+            int call = calls.incrementAndGet();
+            byte[] response;
+            if (call == 1) {
+                response = ("{\"id\":\"chatcmpl_thinking\","
+                        + "\"created\":0,\"model\":\"test-model\","
+                        + "\"object\":\"chat.completion\","
+                        + "\"choices\":[{\"index\":0,"
+                        + "\"finish_reason\":\"length\",\"message\":{"
+                        + "\"role\":\"assistant\",\"content\":null,"
+                        + "\"reasoning_content\":\"still thinking\"}}]}")
+                        .getBytes(StandardCharsets.UTF_8);
+            } else {
+                fallbackBody.set(body);
+                response = ("{\"id\":\"chatcmpl_fallback\","
+                        + "\"created\":0,\"model\":\"test-model\","
+                        + "\"object\":\"chat.completion\","
+                        + "\"choices\":[{\"index\":0,"
+                        + "\"finish_reason\":\"stop\",\"message\":{"
+                        + "\"role\":\"assistant\","
+                        + "\"content\":\"{\\\"operation\\\":\\\"reply\\\","
+                        + "\\\"command\\\":\\\"\\\","
+                        + "\\\"message\\\":\\\"ok\\\"}\"}}]}")
+                        .getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.getResponseHeaders().set(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:"
+                    + server.getAddress().getPort()
+                    + "/chat/completions";
+            LlmAction action = new OpenAiResponsesGateway().request(
+                    new OpenAiResponsesGateway.Configuration(
+                            endpoint, LlmApiMode.AUTO, "test-model",
+                            "sk-local-test", 5, true, "high"),
+                    List.of(new OpenAiResponsesGateway.Message(
+                            "user", "return json")))
+                    .get(5, TimeUnit.SECONDS);
+
+            assertEquals(2, calls.get());
+            assertEquals(LlmAction.Operation.REPLY, action.operation());
+            JsonNode fallback = MAPPER.readTree(fallbackBody.get());
+            assertFalse(fallback.has("thinking"));
+            assertFalse(fallback.has("reasoning_effort"));
+            assertEquals(1024, fallback.path("max_tokens").asInt());
         } finally {
             server.stop(0);
         }
