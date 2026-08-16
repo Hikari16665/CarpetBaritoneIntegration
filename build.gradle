@@ -1,3 +1,12 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.guardsquare:proguard-gradle:7.6.1'
+    }
+}
+
 plugins {
     id 'fabric-loom' version '1.17-SNAPSHOT'
     id 'maven-publish'
@@ -33,6 +42,10 @@ configurations {
     implementation.extendsFrom(openaiSdk)
 }
 
+def openAiSdkVersion = '4.46.0'
+def shrunkOpenAiSdkJar = layout.buildDirectory.file(
+        "openai-sdk/openai-java-chat-runtime-${openAiSdkVersion}.jar")
+
 repositories {
     // Add repositories to retrieve artifacts from in here.
     // You should only use this when depending on other mods because
@@ -53,6 +66,10 @@ repositories {
     maven {
         name = "DAQEM Studios Maven"
         url = "https://maven.daqem.com/releases"
+    }
+    flatDir {
+        name = "CBI generated OpenAI runtime"
+        dirs layout.buildDirectory.dir('openai-sdk')
     }
 }
 
@@ -80,7 +97,7 @@ dependencies {
 
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
     implementation 'com.google.code.gson:gson:2.10.1'
-    openaiSdk 'com.openai:openai-java:4.46.0'
+    openaiSdk "com.openai:openai-java:${openAiSdkVersion}"
     // Fabric does not provide the SDK at runtime. Nest the complete transitive
     // SDK graph into the mod instead of requiring a separate library mod.
 
@@ -88,13 +105,69 @@ dependencies {
     implementation 'com.google.guava:guava:32.1.1-jre'
 }
 
-// Loom's include configuration is intentionally non-transitive. Resolve the
-// dedicated SDK graph, then re-add every artifact with its Maven identity so
-// processIncludeJars can create valid Fabric Jar-in-Jar metadata.
+def shrinkOpenAiSdk = tasks.register(
+        'shrinkOpenAiSdk', proguard.gradle.ProGuardTask) {
+    description = 'Shrinks the official OpenAI SDK to the CBI chat runtime'
+    group = 'build'
+
+    def sdkInputs = configurations.openaiSdk.filter { artifact ->
+        artifact.name.startsWith('openai-java-core-')
+                || artifact.name.startsWith('openai-java-client-okhttp-')
+    }
+    sdkInputs.each { sdkInput ->
+        injars sdkInput, filter: '!META-INF/native-image/**'
+    }
+    outjars shrunkOpenAiSdkJar
+    libraryjars(configurations.openaiSdk - sdkInputs)
+
+    def jmods = fileTree("${System.getProperty('java.home')}/jmods") {
+        include '*.jmod'
+    }
+    jmods.files.each { jmod ->
+        libraryjars jmod, jarfilter: '!**.jar', filter: '!module-info.class'
+    }
+    configuration file('config/proguard-openai.pro')
+
+    doFirst {
+        shrunkOpenAiSdkJar.get().asFile.parentFile.mkdirs()
+    }
+}
+
+// Loom's include configuration is intentionally non-transitive. Keep the
+// ordinary runtime dependencies intact, but replace the two large official
+// SDK implementation jars with one ProGuard-shrunk chat-only runtime.
+dependencies.add('include',
+        "cbi.internal:openai-java-chat-runtime:${openAiSdkVersion}")
+tasks.named('processIncludeJars') {
+    dependsOn shrinkOpenAiSdk
+}
+
+def testShrunkOpenAiSdk = tasks.register('testShrunkOpenAiSdk', Test) {
+    description = 'Runs CBI LLM tests against the shrunk OpenAI SDK runtime'
+    group = 'verification'
+    dependsOn tasks.named('testClasses'), shrinkOpenAiSdk
+    shouldRunAfter tasks.named('test')
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath.filter { artifact ->
+        !artifact.name.startsWith('openai-java-core-')
+                && !artifact.name.startsWith('openai-java-client-okhttp-')
+    } + files(shrunkOpenAiSdkJar)
+    filter {
+        includeTestsMatching 'baritone.server.llm.*'
+    }
+}
+tasks.named('check') {
+    dependsOn testShrunkOpenAiSdk
+}
+
 afterEvaluate {
     configurations.openaiSdk.resolvedConfiguration.resolvedArtifacts.each { artifact ->
         def id = artifact.moduleVersion.id
         if (id.group == 'org.jetbrains' && id.name == 'annotations') return
+        if (id.group == 'com.openai' && id.name in [
+                'openai-java', 'openai-java-core',
+                'openai-java-client-okhttp']) return
         dependencies.add('include', "${id.group}:${id.name}:${id.version}") {
             transitive = false
         }
