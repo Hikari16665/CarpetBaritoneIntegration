@@ -41,21 +41,19 @@
 
 ### AI 自然语言控制
 
-服务端默认连接 OpenAI Responses API，并从 `OPENAI_API_KEY` 环境变量
-读取密钥。密钥不会写入模组配置、同步给客户端或输出到日志。例如在同一个
-PowerShell 窗口中启动服务端前设置：
-
-```powershell
-$env:OPENAI_API_KEY="你的 API Key"
-```
-
-模型、接口地址、请求超时、会话超时和历史轮数均可通过现有设置系统修改，
-例如：
+服务端通过设置系统直接配置兼容 OpenAI Responses API 的 `base_url`、
+`model` 和 `api_key`。`base_url` 会自动补全 `/responses`，也兼容直接填写
+完整接口地址。例如：
 
 ```text
+/tell Steve cbi settings default llmBaseUrl https://api.openai.com/v1
 /tell Steve cbi settings default llmModel gpt-5.6-luna
-/tell Steve cbi settings default llmEndpoint https://api.openai.com/v1/responses
+/tell Steve cbi settings default llmApiKey <你的 API Key>
 ```
+
+持久 API Key 会明文保存在服务端的 CBI 默认设置文件中。聊天查询、日志与
+发送给客户端的设置数据只会显示掩码，不会返回密钥原文。无需鉴权的本地端点
+可以把 `llmApiKey` 留空。
 
 会话按“发送者 + 假人”隔离。模型每轮只能回复、提出待确认任务、执行一条
 白名单 CBI 指令或取消待确认任务。`clean`、直接放置和直接破坏等修改方块的

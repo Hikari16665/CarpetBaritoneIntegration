@@ -46,14 +46,15 @@ public final class SettingOptions {
                     field.getName(), SettingPresentation.name(field.getName()),
                     SettingPresentation.description(field.getName()),
                     SettingPresentation.category(field.getName()),
-                    type, encode(setting.value),
-                    encode(setting.defaultValue), choices);
+                    type, encodeForClient(field, setting.value),
+                    encodeForClient(field, setting.defaultValue), choices);
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException(exception);
         }
     }
 
     private static String type(Field field, Object sample) {
+        if (field.getName().equals("llmApiKey")) return "SECRET";
         if (sample instanceof Boolean) return "BOOLEAN";
         if (sample instanceof Integer) return "INTEGER";
         if (sample instanceof Long) return "LONG";
@@ -75,6 +76,14 @@ public final class SettingOptions {
             return "STRING_LIST";
         }
         return "STRING";
+    }
+
+    static String encodeForClient(Field field, Object value) {
+        if (field.getName().equals("llmApiKey")) {
+            return value instanceof String text && !text.isBlank()
+                    ? "<已配置>" : "<未配置>";
+        }
+        return encode(value);
     }
 
     public static String encode(Object value) {
