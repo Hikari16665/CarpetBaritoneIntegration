@@ -60,7 +60,12 @@
 /tell Steve cbi settings default llmBaseUrl https://api.deepseek.com
 /tell Steve cbi settings default llmApiMode auto
 /tell Steve cbi settings default llmModel deepseek-chat
+/tell Steve cbi settings default llmThinkingEnabled true
+/tell Steve cbi settings default llmReasoningEffort high
 ```
+
+Chat Completions 由官方 OpenAI Java SDK 发送，DeepSeek 地址会按其兼容接口
+使用 `Authorization: Bearer <llmApiKey>`。SDK 及其运行时依赖已嵌入模组 JAR。
 
 持久 API Key 会明文保存在服务端的 CBI 默认设置文件中。聊天查询、日志与
 发送给客户端的设置数据只会显示掩码，不会返回密钥原文。无需鉴权的本地端点

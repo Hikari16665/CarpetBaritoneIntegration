@@ -112,6 +112,10 @@ public final class Settings {
     public final Setting<String> llmModel =
             new Setting<>("gpt-5.6-luna");
     public final Setting<String> llmApiKey = new Setting<>("");
+    public final Setting<Boolean> llmThinkingEnabled =
+            new Setting<>(true);
+    public final Setting<String> llmReasoningEffort =
+            new Setting<>("high");
     public final Setting<Integer> llmRequestTimeoutSeconds =
             new Setting<>(45);
     public final Setting<Integer> llmSessionTimeoutSeconds =
