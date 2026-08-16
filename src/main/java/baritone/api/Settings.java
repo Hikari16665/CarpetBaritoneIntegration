@@ -107,6 +107,8 @@ public final class Settings {
     public final Setting<Boolean> llmEnabled = new Setting<>(true);
     public final Setting<String> llmBaseUrl =
             new Setting<>("https://api.openai.com/v1");
+    public final Setting<LlmApiMode> llmApiMode =
+            new Setting<>(LlmApiMode.AUTO);
     public final Setting<String> llmModel =
             new Setting<>("gpt-5.6-luna");
     public final Setting<String> llmApiKey = new Setting<>("");

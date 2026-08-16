@@ -1,5 +1,6 @@
 package baritone.server.llm;
 
+import baritone.api.LlmApiMode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -34,6 +35,22 @@ public class OpenAiResponsesGatewayTest {
     }
 
     @Test
+    public void chatCompletionsUsesJsonObjectOutput() {
+        ObjectNode body = OpenAiResponsesGateway.chatCompletionsRequestBody(
+                "deepseek-chat", List.of(
+                        new OpenAiResponsesGateway.Message(
+                                "system", "return json"),
+                        new OpenAiResponsesGateway.Message(
+                                "user", "request")));
+
+        assertEquals("deepseek-chat", body.path("model").asText());
+        assertEquals("json_object", body.path("response_format")
+                .path("type").asText());
+        assertEquals(2, body.path("messages").size());
+        assertEquals(512, body.path("max_tokens").asInt());
+    }
+
+    @Test
     public void extractsNestedResponsesApiOutputText() throws Exception {
         JsonNode response = MAPPER.readTree("""
                 {"id":"resp_1","output":[{"type":"message","content":[
@@ -46,6 +63,21 @@ public class OpenAiResponsesGatewayTest {
                 OpenAiResponsesGateway.extractOutputText(response));
         assertEquals(LlmAction.Operation.REPLY, action.operation());
         assertEquals("", action.command());
+        assertEquals("好的", action.message());
+    }
+
+    @Test
+    public void extractsChatCompletionsAssistantJson() throws Exception {
+        JsonNode response = MAPPER.readTree("""
+                {"choices":[{"message":{"role":"assistant","content":
+                "{\\"operation\\":\\"reply\\",\\"command\\":\\"\\",\\"message\\":\\"好的\\"}"
+                }}]}
+                """);
+
+        LlmAction action = LlmAction.parse(
+                OpenAiResponsesGateway.extractChatCompletionText(response));
+
+        assertEquals(LlmAction.Operation.REPLY, action.operation());
         assertEquals("好的", action.message());
     }
 
@@ -64,5 +96,55 @@ public class OpenAiResponsesGatewayTest {
         assertEquals("https://proxy.example/v1/responses",
                 OpenAiResponsesGateway.responsesEndpoint(
                         "https://proxy.example").toString());
+        assertEquals("https://api.deepseek.com/chat/completions",
+                OpenAiResponsesGateway.chatCompletionsEndpoint(
+                        "https://api.deepseek.com").toString());
+        assertEquals("http://127.0.0.1:8000/v1/chat/completions",
+                OpenAiResponsesGateway.chatCompletionsEndpoint(
+                        "http://127.0.0.1:8000/v1/").toString());
+    }
+
+    @Test
+    public void autoProtocolRecognizesDeepSeekAndCompleteEndpoints() {
+        assertEquals(OpenAiResponsesGateway.Protocol.CHAT_COMPLETIONS,
+                OpenAiResponsesGateway.protocol(LlmApiMode.AUTO,
+                        "https://api.deepseek.com"));
+        assertEquals(OpenAiResponsesGateway.Protocol.CHAT_COMPLETIONS,
+                OpenAiResponsesGateway.protocol(LlmApiMode.AUTO,
+                        "https://proxy.example/v1/chat/completions"));
+        assertEquals(OpenAiResponsesGateway.Protocol.RESPONSES,
+                OpenAiResponsesGateway.protocol(LlmApiMode.AUTO,
+                        "https://api.openai.com/v1"));
+        assertEquals(OpenAiResponsesGateway.Protocol.RESPONSES,
+                OpenAiResponsesGateway.protocol(LlmApiMode.RESPONSES,
+                        "https://api.deepseek.com"));
+    }
+
+    @Test
+    public void normalizesCommonApiKeyPasteFormats() {
+        assertEquals("sk-example",
+                OpenAiResponsesGateway.normalizeApiKey("sk-example"));
+        assertEquals("sk-example",
+                OpenAiResponsesGateway.normalizeApiKey(
+                        "  Bearer sk-example  "));
+        assertEquals("sk-example",
+                OpenAiResponsesGateway.normalizeApiKey(
+                        "\"Bearer sk-example\""));
+        assertEquals("",
+                OpenAiResponsesGateway.normalizeApiKey("  "));
+    }
+
+    @Test
+    public void authenticationErrorsNeverEchoProviderBody() {
+        String providerBody = "api key ****7ca4 is invalid";
+
+        String unauthorized = OpenAiResponsesGateway.httpError(
+                401, providerBody);
+        String forbidden = OpenAiResponsesGateway.httpError(
+                403, providerBody);
+
+        assertFalse(unauthorized.contains("7ca4"));
+        assertFalse(forbidden.contains("7ca4"));
+        assertTrue(unauthorized.contains("llmApiKey"));
     }
 }
