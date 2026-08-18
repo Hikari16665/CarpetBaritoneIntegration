@@ -78,9 +78,13 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
                 if (baritone.getFakeInteractionController()
                         .interactBlock(closestReachableLocation())
                         || arrivalTicks++ > 20) {
+                    baritone.getStatusMessenger().taskComplete(
+                            "已到达并交互目标方块");
                     onLostControl();
                 }
             } else {
+                baritone.getStatusMessenger().taskComplete(
+                        "已到达目标方块");
                 onLostControl();
             }
             return;
@@ -90,6 +94,8 @@ public final class GetToBlockProcess implements IGetToBlockProcess {
             if (Baritone.settings().blacklistClosestOnFailure.value && blacklistClosest()) {
                 scanWorld();
             } else {
+                baritone.getStatusMessenger().taskFailure(
+                        "找不到可到达的目标方块");
                 onLostControl();
             }
         }

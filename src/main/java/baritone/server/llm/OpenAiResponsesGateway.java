@@ -53,6 +53,189 @@ public final class OpenAiResponsesGateway {
                 .thenApply(OpenAiResponsesGateway::decode);
     }
 
+    /** Native function-calling transport shared by Responses and Chat. */
+    public CompletableFuture<LlmModelTurn> requestTools(
+            Configuration configuration,
+            List<LlmWireMessage> messages,
+            List<LlmToolDefinition> tools) {
+        Protocol protocol = protocol(
+                configuration.apiMode(), configuration.baseUrl());
+        ObjectNode body = protocol == Protocol.RESPONSES
+                ? responsesToolBody(configuration, messages, tools)
+                : chatToolBody(configuration, messages, tools);
+        URI endpoint = protocol == Protocol.RESPONSES
+                ? responsesEndpoint(configuration.baseUrl())
+                : chatEndpoint(configuration.baseUrl());
+        HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
+                .timeout(Duration.ofSeconds(configuration.timeoutSeconds()))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", "CarpetBaritoneIntegration/1.21.7")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        body.toString(), StandardCharsets.UTF_8));
+        String apiKey = normalizeApiKey(configuration.apiKey());
+        if (!apiKey.isBlank()) request.header(
+                "Authorization", "Bearer " + apiKey);
+        return client.sendAsync(request.build(),
+                        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .thenApply(response -> decodeToolTurn(protocol, response));
+    }
+
+    private static ObjectNode responsesToolBody(
+            Configuration configuration,
+            List<LlmWireMessage> messages,
+            List<LlmToolDefinition> tools) {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("model", configuration.model());
+        root.put("store", false);
+        root.put("max_output_tokens", 4096);
+        ArrayNode input = root.putArray("input");
+        for (LlmWireMessage message : messages) {
+            switch (message.kind()) {
+                case MESSAGE -> input.addObject()
+                        .put("role", message.role())
+                        .put("content", message.content());
+                case ASSISTANT_TOOL_CALLS -> message.toolCalls().forEach(call ->
+                        input.addObject().put("type", "function_call")
+                                .put("call_id", call.id())
+                                .put("name", call.name())
+                                .put("arguments", call.arguments()));
+                case TOOL_RESULT -> input.addObject()
+                        .put("type", "function_call_output")
+                        .put("call_id", message.toolCallId())
+                        .put("output", message.content());
+            }
+        }
+        ArrayNode outputTools = root.putArray("tools");
+        tools.forEach(tool -> {
+            ObjectNode output = outputTools.addObject();
+            output.put("type", "function");
+            output.put("name", tool.name());
+            output.put("description", tool.description());
+            output.set("parameters", tool.parameters());
+            output.put("strict", true);
+        });
+        root.put("tool_choice", "auto");
+        root.put("parallel_tool_calls", true);
+        return root;
+    }
+
+    private static ObjectNode chatToolBody(
+            Configuration configuration,
+            List<LlmWireMessage> messages,
+            List<LlmToolDefinition> tools) {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("model", configuration.model());
+        root.put("max_tokens", 4096);
+        root.put("stream", false);
+        if (configuration.thinkingEnabled()) {
+            root.putObject("thinking").put("type", "enabled");
+        }
+        if (!configuration.reasoningEffort().isBlank()) {
+            root.put("reasoning_effort", configuration.reasoningEffort());
+        }
+        ArrayNode outputMessages = root.putArray("messages");
+        for (LlmWireMessage message : messages) {
+            switch (message.kind()) {
+                case MESSAGE -> outputMessages.addObject()
+                        .put("role", message.role())
+                        .put("content", message.content());
+                case ASSISTANT_TOOL_CALLS -> {
+                    ObjectNode assistant = outputMessages.addObject();
+                    assistant.put("role", "assistant");
+                    assistant.putNull("content");
+                    ArrayNode calls = assistant.putArray("tool_calls");
+                    message.toolCalls().forEach(call -> {
+                        ObjectNode output = calls.addObject();
+                        output.put("id", call.id());
+                        output.put("type", "function");
+                        output.putObject("function")
+                                .put("name", call.name())
+                                .put("arguments", call.arguments());
+                    });
+                }
+                case TOOL_RESULT -> outputMessages.addObject()
+                        .put("role", "tool")
+                        .put("tool_call_id", message.toolCallId())
+                        .put("content", message.content());
+            }
+        }
+        ArrayNode outputTools = root.putArray("tools");
+        tools.forEach(tool -> {
+            ObjectNode output = outputTools.addObject();
+            output.put("type", "function");
+            ObjectNode function = output.putObject("function");
+            function.put("name", tool.name());
+            function.put("description", tool.description());
+            function.set("parameters", tool.parameters());
+            function.put("strict", true);
+        });
+        root.put("tool_choice", "auto");
+        root.put("parallel_tool_calls", true);
+        return root;
+    }
+
+    private static LlmModelTurn decodeToolTurn(
+            Protocol protocol, HttpResponse<String> response) {
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IllegalStateException(httpError(
+                    response.statusCode(), response.body()));
+        }
+        try {
+            JsonNode root = MAPPER.readTree(response.body());
+            List<LlmToolCall> calls = new java.util.ArrayList<>();
+            String text = "";
+            if (protocol == Protocol.RESPONSES) {
+                JsonNode output = root.path("output");
+                if (output.isArray()) for (JsonNode item : output) {
+                    if ("function_call".equals(item.path("type").asText())) {
+                        calls.add(new LlmToolCall(
+                                item.path("call_id").asText(
+                                        item.path("id").asText()),
+                                item.path("name").asText(),
+                                item.path("arguments").asText("{}")));
+                    }
+                }
+                String extracted = extractOutputText(root);
+                if (extracted != null) text = extracted;
+            } else {
+                JsonNode message = root.path("choices").path(0).path("message");
+                JsonNode toolCalls = message.path("tool_calls");
+                if (toolCalls.isArray()) for (JsonNode call : toolCalls) {
+                    JsonNode function = call.path("function");
+                    calls.add(new LlmToolCall(call.path("id").asText(),
+                            function.path("name").asText(),
+                            function.path("arguments").asText("{}")));
+                }
+                if (message.path("content").isTextual()) {
+                    text = message.path("content").asText();
+                }
+            }
+            if (calls.isEmpty() && text.isBlank()) {
+                throw new IllegalStateException(
+                        "LLM response contains no tool call or text");
+            }
+            return new LlmModelTurn(calls, text);
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "Unable to decode LLM tool response", exception);
+        }
+    }
+
+    private static URI chatEndpoint(String baseUrl) {
+        URI uri = baseUri(baseUrl);
+        String normalized = trimTrailingSlashes(uri.toString());
+        String path = trimTrailingSlashes(
+                uri.getPath() == null ? "" : uri.getPath());
+        if (path.endsWith("/chat/completions")) return URI.create(normalized);
+        if (path.isEmpty() || path.equals("/")) {
+            return URI.create(normalized + "/chat/completions");
+        }
+        return URI.create(normalized + "/chat/completions");
+    }
+
     static ObjectNode requestBody(String model, List<Message> messages) {
         ObjectNode root = MAPPER.createObjectNode();
         root.put("model", model);

@@ -140,6 +140,7 @@ public class Carpetbaritoneintegration implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             LlmConversationService.INSTANCE.clear();
+            baritone.server.llm.LlmObservationScheduler.INSTANCE.clear(server);
             BARITONES.clear();
         });
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
