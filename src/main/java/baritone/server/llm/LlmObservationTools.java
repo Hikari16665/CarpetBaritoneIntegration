@@ -180,7 +180,7 @@ public final class LlmObservationTools {
                     .put("damage", stack.getDamageValue());
         }
         int free = 0;
-        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : player.getInventory().items) {
             if (stack.isEmpty()) free++;
         }
         node.put("free_inventory_slots", free);
@@ -286,7 +286,7 @@ public final class LlmObservationTools {
         ObjectNode root = ok();
         Map<Item, Integer> counts = new LinkedHashMap<>();
         Map<Item, Integer> boxed = new LinkedHashMap<>();
-        for (ItemStack stack : fake.getInventory().getNonEquipmentItems()) {
+        for (ItemStack stack : fake.getInventory().items) {
             if (stack.isEmpty()) continue;
             counts.merge(stack.getItem(), stack.getCount(), Integer::sum);
             shulkerCounts(stack).forEach((item, count) ->
@@ -474,7 +474,7 @@ public final class LlmObservationTools {
             if (!BuiltInRegistries.BLOCK.containsKey(id)) {
                 throw new IllegalArgumentException("unknown block " + id);
             }
-            result.add(BuiltInRegistries.BLOCK.getValue(id));
+            result.add(BuiltInRegistries.BLOCK.get(id));
         });
         if (result.isEmpty()) throw new IllegalArgumentException(
                 "at least one block id is required");
@@ -490,7 +490,7 @@ public final class LlmObservationTools {
             if (!BuiltInRegistries.ITEM.containsKey(id)) {
                 throw new IllegalArgumentException("unknown item " + id);
             }
-            result.add(BuiltInRegistries.ITEM.getValue(id));
+            result.add(BuiltInRegistries.ITEM.get(id));
         });
         if (result.isEmpty()) throw new IllegalArgumentException(
                 "at least one item id is required");
