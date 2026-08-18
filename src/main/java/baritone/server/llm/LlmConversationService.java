@@ -298,7 +298,7 @@ public final class LlmConversationService {
             String userContent, JsonNode arguments, int maximumTasks) {
         try {
             Baritone baritone = Carpetbaritoneintegration.BARITONES
-                    .getOrCreate(fake.getServer(), fake);
+                    .getOrCreate(fake.level().getServer(), fake);
             LlmPlan plan = LlmPlan.parse(arguments);
             LlmPlanValidator.ValidatedPlan validated = LlmPlanValidator.validate(
                     plan, LlmCapabilityRegistry.from(baritone), maximumTasks);
