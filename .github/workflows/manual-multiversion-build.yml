@@ -76,8 +76,14 @@ jobs:
           release_version="v${mod_version}+${mod_version_date}"
 
           case "$minecraft_version" in
-            1.21.*) java_version=21 ;;
-            26.*)   java_version=25 ;;
+            1.21.*)
+              java_version=21
+              java_distribution=temurin
+              ;;
+            26.*)
+              java_version=25
+              java_distribution=microsoft
+              ;;
             *)
               echo "::error::No Java version rule for Minecraft $minecraft_version"
               exit 1
@@ -90,12 +96,13 @@ jobs:
           echo "minecraft=$minecraft_version" >> "$GITHUB_OUTPUT"
           echo "mod=$release_version" >> "$GITHUB_OUTPUT"
           echo "java=$java_version" >> "$GITHUB_OUTPUT"
+          echo "distribution=$java_distribution" >> "$GITHUB_OUTPUT"
           echo "branch=$safe_branch" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java ${{ steps.versions.outputs.java }}
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: ${{ steps.versions.outputs.distribution }}
           java-version: ${{ steps.versions.outputs.java }}
           cache: gradle
 
