@@ -25,9 +25,83 @@ public class OpenAiResponsesGatewayTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
-    public void jsonObjectPromptExplicitlyNamesJson() {
+    public void promptRequiresToolCalling() {
         assertTrue(LlmConversationService.SYSTEM_PROMPT
-                .toLowerCase(Locale.ROOT).contains("json"));
+                .toLowerCase(Locale.ROOT).contains("submit_plan"));
+    }
+
+    @Test
+    public void chatToolCallsAndToolResultsUseOpenAiFormat() throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server.createContext("/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(),
+                    StandardCharsets.UTF_8));
+            byte[] response = """
+                    {"choices":[{"message":{"role":"assistant","content":null,
+                    "tool_calls":[{"id":"call_1","type":"function","function":
+                    {"name":"get_context","arguments":"{}"}}]}}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:"
+                    + server.getAddress().getPort() + "/chat/completions";
+            LlmModelTurn turn = new OpenAiResponsesGateway().requestTools(
+                    new OpenAiResponsesGateway.Configuration(endpoint,
+                            LlmApiMode.CHAT_COMPLETIONS, "test", "", 5,
+                            false, ""),
+                    List.of(LlmWireMessage.message("user", "inspect"),
+                            LlmWireMessage.assistantCalls(List.of(
+                                    new LlmToolCall("old", "get_context", "{}"))),
+                            LlmWireMessage.toolResult("old", "{\"ok\":true}")),
+                    LlmToolCatalog.definitions()).get(5, TimeUnit.SECONDS);
+
+            assertEquals("get_context", turn.toolCalls().getFirst().name());
+            JsonNode body = MAPPER.readTree(requestBody.get());
+            assertTrue(body.path("tools").size() > 10);
+            assertEquals("tool", body.path("messages").get(2)
+                    .path("role").asText());
+            assertEquals("old", body.path("messages").get(2)
+                    .path("tool_call_id").asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void responsesToolCallIsDecoded() throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/responses", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = """
+                    {"output":[{"type":"function_call","call_id":"fc_1",
+                    "name":"reply_to_player","arguments":"{\\\"message\\\":\\\"ok\\\"}"}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:"
+                    + server.getAddress().getPort() + "/v1";
+            LlmModelTurn turn = new OpenAiResponsesGateway().requestTools(
+                    new OpenAiResponsesGateway.Configuration(endpoint,
+                            LlmApiMode.RESPONSES, "test", "", 5,
+                            false, ""),
+                    List.of(LlmWireMessage.message("user", "hello")),
+                    LlmToolCatalog.definitions()).get(5, TimeUnit.SECONDS);
+            assertEquals("fc_1", turn.toolCalls().getFirst().id());
+            assertEquals("reply_to_player", turn.toolCalls().getFirst().name());
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

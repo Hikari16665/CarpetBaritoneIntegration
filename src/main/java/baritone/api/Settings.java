@@ -122,6 +122,18 @@ public final class Settings {
             new Setting<>(1800);
     public final Setting<Integer> llmHistoryTurns =
             new Setting<>(12);
+    public final Setting<Integer> llmMaxPlanTasks =
+            new Setting<>(24);
+    public final Setting<Integer> llmMaxToolRounds =
+            new Setting<>(8);
+    public final Setting<Integer> llmMaxToolCallsPerTurn =
+            new Setting<>(24);
+    public final Setting<Integer> llmObservationMaxDistance =
+            new Setting<>(128);
+    public final Setting<Integer> llmToolResultLimit =
+            new Setting<>(64);
+    public final Setting<Integer> llmPlanRepairAttempts =
+            new Setting<>(2);
     /** Kept for Builder API/settings compatibility. On a dedicated server the
      * completion notification is delivered through the command feedback
      * channel instead of a client desktop notification. */

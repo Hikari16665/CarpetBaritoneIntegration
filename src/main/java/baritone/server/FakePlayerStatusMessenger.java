@@ -96,6 +96,7 @@ public final class FakePlayerStatusMessenger {
     }
 
     public void cancelTask() {
+        baritone.getTaskLifecycleTracker().cancel("任务已取消");
         taskStartTick = -1L;
         taskName = "任务";
         for (Event event : Event.values()) {
@@ -104,12 +105,17 @@ public final class FakePlayerStatusMessenger {
     }
 
     public void taskFailure(String reason) {
+        baritone.getTaskLifecycleTracker().fail(
+                "TASK_FAILED", nonBlank(reason, "未知原因"), Map.of());
         alert(Event.TASK_FAILURE, values("task", taskName,
                 "reason", nonBlank(reason, "未知原因")));
         taskStartTick = -1L;
     }
 
     public void taskComplete(String summary) {
+        baritone.getTaskLifecycleTracker().succeed(
+                "TASK_COMPLETE", nonBlank(summary, taskName + "已完成"),
+                Map.of());
         long elapsed = taskStartTick < 0L ? 0L : now() - taskStartTick;
         int minimum = Math.max(0,
                 Baritone.settings().fakePlayerCompletionMessageMinTicks.value);
@@ -127,6 +133,12 @@ public final class FakePlayerStatusMessenger {
     }
 
     public void builderMissingMaterials(boolean missing, String items) {
+        if (missing) {
+            baritone.getTaskLifecycleTracker().pause(
+                    "MISSING_MATERIALS", nonBlank(items, "未识别的建材"));
+        } else {
+            baritone.getTaskLifecycleTracker().resume();
+        }
         condition(Event.MISSING_MATERIALS, missing,
                 values("items", nonBlank(items, "未识别的建材")));
     }
@@ -146,12 +158,18 @@ public final class FakePlayerStatusMessenger {
     }
 
     public void collectIncomplete(String summary) {
+        baritone.getTaskLifecycleTracker().fail(
+                "COLLECT_INCOMPLETE", nonBlank(summary, "未找到全部物品"),
+                Map.of("summary", nonBlank(summary, "未找到全部物品")));
         alert(Event.COLLECT_INCOMPLETE,
                 values("summary", nonBlank(summary, "未找到全部物品")));
         taskStartTick = -1L;
     }
 
     public void targetUnavailable(String target, String reason) {
+        baritone.getTaskLifecycleTracker().fail(
+                "TARGET_UNAVAILABLE", nonBlank(reason, "目标不可用"),
+                values("target", nonBlank(target, "未知目标")));
         alert(Event.TARGET_UNAVAILABLE, values(
                 "target", nonBlank(target, "未知目标"),
                 "reason", nonBlank(reason, "离线、跨维度或不可达")));

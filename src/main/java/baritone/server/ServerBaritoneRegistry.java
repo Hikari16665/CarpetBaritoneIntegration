@@ -63,6 +63,7 @@ public final class ServerBaritoneRegistry {
 
     public void tick(MinecraftServer server) {
         long started = System.nanoTime();
+        baritone.server.llm.LlmObservationScheduler.INSTANCE.tick(server);
         if (!instances.isEmpty()) {
             java.util.List<Baritone> maintenance =
                     java.util.List.copyOf(instances.values());
