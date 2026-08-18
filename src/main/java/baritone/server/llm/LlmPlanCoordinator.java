@@ -65,7 +65,6 @@ public final class LlmPlanCoordinator {
                                        ServerPlayer fake, String reason) {
         ActivePlan active = activePlans.remove(fake.getUUID());
         if (active == null) return false;
-        fake.getServer();
         Baritone baritone = me.nuoyuan.carpetbaritoneintegration
                 .Carpetbaritoneintegration.BARITONES.get(fake);
         if (baritone != null) {
@@ -172,7 +171,7 @@ public final class LlmPlanCoordinator {
 
     private static void tell(ServerPlayer fake, ServerPlayer recipient,
                              String message) {
-        MinecraftServer server = fake.getServer();
+        MinecraftServer server = fake.level().getServer();
         if (server == null) return;
         String command = "tell " + StringArgumentType.escapeIfRequired(
                 recipient.getScoreboardName()) + " "

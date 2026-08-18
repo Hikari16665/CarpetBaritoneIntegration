@@ -19,7 +19,7 @@ import baritone.utils.schematic.format.DefaultSchematicFormats;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
@@ -142,7 +142,7 @@ public final class LlmObservationTools {
     private static ObjectNode player(ServerPlayer player) {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("name", player.getScoreboardName());
-        node.put("dimension", player.level().dimension().location().toString());
+        node.put("dimension", player.level().dimension().identifier().toString());
         node.put("x", player.getX());
         node.put("y", player.getY());
         node.put("z", player.getZ());
@@ -371,7 +371,7 @@ public final class LlmObservationTools {
     private static ObjectNode players(ServerPlayer fake) {
         ObjectNode root = ok();
         ArrayNode results = root.putArray("results");
-        fake.getServer().getPlayerList().getPlayers().stream()
+        fake.level().getServer().getPlayerList().getPlayers().stream()
                 .sorted(Comparator.comparing(ServerPlayer::getScoreboardName,
                         String.CASE_INSENSITIVE_ORDER))
                 .limit(toolLimit())
@@ -380,7 +380,7 @@ public final class LlmObservationTools {
                     value.put("name", player.getScoreboardName());
                     value.put("fake", player instanceof carpet.patches.EntityPlayerMPFake);
                     value.put("dimension", player.level().dimension()
-                            .location().toString());
+                            .identifier().toString());
                     position(value, player.blockPosition());
                 });
         return root;
@@ -411,7 +411,7 @@ public final class LlmObservationTools {
             }
         }
         ArrayNode results = root.putArray("syncmatica");
-        SyncmaticaBridge.list(fake.getServer()).stream()
+        SyncmaticaBridge.list(fake.level().getServer()).stream()
                 .limit(toolLimit()).forEach(blueprint -> {
             ObjectNode value = results.addObject();
             value.put("id", blueprint.id().toString());
@@ -470,7 +470,7 @@ public final class LlmObservationTools {
         if (!values.isArray()) throw new IllegalArgumentException(
                 "block_ids must be an array");
         values.forEach(value -> {
-            ResourceLocation id = resource(value.asText());
+            Identifier id = resource(value.asText());
             if (!BuiltInRegistries.BLOCK.containsKey(id)) {
                 throw new IllegalArgumentException("unknown block " + id);
             }
@@ -486,7 +486,7 @@ public final class LlmObservationTools {
         if (!values.isArray()) throw new IllegalArgumentException(
                 "item_ids must be an array");
         values.forEach(value -> {
-            ResourceLocation id = resource(value.asText());
+            Identifier id = resource(value.asText());
             if (!BuiltInRegistries.ITEM.containsKey(id)) {
                 throw new IllegalArgumentException("unknown item " + id);
             }
@@ -497,9 +497,9 @@ public final class LlmObservationTools {
         return result;
     }
 
-    private static ResourceLocation resource(String value) {
+    private static Identifier resource(String value) {
         String normalized = value.contains(":") ? value : "minecraft:" + value;
-        ResourceLocation id = ResourceLocation.tryParse(normalized);
+        Identifier id = Identifier.tryParse(normalized);
         if (id == null) throw new IllegalArgumentException(
                 "invalid resource id " + value);
         return id;
