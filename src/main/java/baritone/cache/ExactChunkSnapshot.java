@@ -109,8 +109,8 @@ public final class ExactChunkSnapshot {
      */
     public ExactChunkSnapshot withSectionFrom(
             BlockPos pos, LevelChunk chunk, long newRevision) {
-        if (chunk.getPos().x() != chunkX
-                || chunk.getPos().z() != chunkZ
+        if (chunk.getPos().x != chunkX
+                || chunk.getPos().z != chunkZ
                 || pos.getY() < minY || pos.getY() >= maxY) {
             return this;
         }
