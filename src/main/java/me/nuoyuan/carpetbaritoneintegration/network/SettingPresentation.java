@@ -210,6 +210,12 @@ final class SettingPresentation {
             case "llmRequestTimeoutSeconds" -> "AI 请求超时秒数";
             case "llmSessionTimeoutSeconds" -> "AI 会话超时秒数";
             case "llmHistoryTurns" -> "AI 会话历史轮数";
+            case "llmMaxPlanTasks" -> "AI 单计划最大任务数";
+            case "llmMaxToolRounds" -> "AI 工具调用最大轮数";
+            case "llmMaxToolCallsPerTurn" -> "AI 单轮最大工具调用数";
+            case "llmObservationMaxDistance" -> "AI 观测最大距离";
+            case "llmToolResultLimit" -> "AI 工具单次结果上限";
+            case "llmPlanRepairAttempts" -> "AI 计划修复次数";
             case "acceptableThrowawayItems" -> "允许用于搭路的物品";
             case "trashItems" -> "垃圾物品黑名单";
             case "trashDiscardEnabled" -> "任务中自动丢弃垃圾";
@@ -331,6 +337,12 @@ final class SettingPresentation {
             case "llmRequestTimeoutSeconds" -> "单轮模型 HTTP 请求的最长等待时间；请求异步执行，不会阻塞服务器 tick。";
             case "llmSessionTimeoutSeconds" -> "发送者与单个假人的连续会话在无新消息后保留多久；超时后历史和待确认任务会丢弃。";
             case "llmHistoryTurns" -> "每次请求最多重放多少轮对话。历史按发送者与假人隔离，并包含每轮受控的玩家位置和选区状态。";
+            case "llmMaxPlanTasks" -> "模型一次提交的依赖计划最多包含多少个任务；超过上限会整份拒绝且不执行。";
+            case "llmMaxToolRounds" -> "一条玩家消息最多允许模型进行多少轮观测工具调用，防止工具循环。";
+            case "llmMaxToolCallsPerTurn" -> "一条玩家消息累计可执行的只读工具调用上限。";
+            case "llmObservationMaxDistance" -> "方块、容器、实体和掉落物观测工具允许使用的最大半径；不会因此加载新区块。";
+            case "llmToolResultLimit" -> "每个观测工具最多返回的条目数，结果仍会受到 JSON 总长度限制。";
+            case "llmPlanRepairAttempts" -> "模型计划未通过服务端验证时，允许把错误返回模型重新生成的次数；执行失败不会自动重规划。";
             case "diagnosticLogging" -> "向服务器日志输出 CBI 寻路、建造与交互诊断信息。";
             default -> category(key) + "设置：“" + name(key)
                     + "”。修改后会影响所有现有假人和以后创建的假人。";
