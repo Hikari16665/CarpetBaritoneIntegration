@@ -37,7 +37,7 @@ jobs:
       - name: Set up Java ${{ steps.java.outputs.version }}
         uses: actions/setup-java@v4
         with:
-            distribution: microsoft
+          distribution: microsoft
           java-version: ${{ steps.java.outputs.version }}
           cache: gradle
 
