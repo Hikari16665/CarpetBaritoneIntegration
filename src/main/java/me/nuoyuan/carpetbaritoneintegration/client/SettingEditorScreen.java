@@ -130,12 +130,12 @@ final class SettingEditorScreen extends AbstractScreen {
         addWidget(new ButtonWidget(x, y + 50, 165, 20,
                 Component.literal("清除当前密钥"), button -> {
                     send("settings " + option.name() + " none");
-                    minecraft.setScreen(parent);
+                    minecraft.gui.setScreen(parent);
                 }));
         addWidget(new ButtonWidget(x + 175, y + 50, 165, 20,
                 Component.literal("清除持久密钥"), button -> {
                     send("settings default " + option.name() + " none");
-                    minecraft.setScreen(parent);
+                    minecraft.gui.setScreen(parent);
                 }));
     }
 
@@ -412,7 +412,7 @@ final class SettingEditorScreen extends AbstractScreen {
     private void apply() {
         encoded = editorValue();
         if (option.type().equals("SECRET") && encoded.isBlank()) {
-            minecraft.setScreen(parent);
+            minecraft.gui.setScreen(parent);
             return;
         }
         send("settings " + option.name() + " " + encoded);
@@ -422,7 +422,7 @@ final class SettingEditorScreen extends AbstractScreen {
     private void applyDefault() {
         encoded = editorValue();
         if (option.type().equals("SECRET") && encoded.isBlank()) {
-            minecraft.setScreen(parent);
+            minecraft.gui.setScreen(parent);
             return;
         }
         send("settings default " + option.name() + " " + encoded);
