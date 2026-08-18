@@ -80,6 +80,7 @@ public final class Baritone implements IBaritone {
             emergencyAvoidanceController;
     private final baritone.server.AutoEatController autoEatController;
     private final baritone.server.FakePlayerStatusMessenger statusMessenger;
+    private final baritone.server.llm.TaskLifecycleTracker taskLifecycleTracker;
     private final ServerLookBehavior lookBehavior;
     private final ServerInventoryController inventoryController;
     private final ServerFakeInteractionController fakeInteractionController;
@@ -142,6 +143,8 @@ public final class Baritone implements IBaritone {
         this.emergencyAvoidanceController =
                 new baritone.server.EmergencyAvoidanceController(this);
         this.autoEatController = new baritone.server.AutoEatController(this);
+        this.taskLifecycleTracker =
+                new baritone.server.llm.TaskLifecycleTracker();
         this.statusMessenger = new baritone.server.FakePlayerStatusMessenger(
                 this, autoEatController);
         this.lookBehavior = new ServerLookBehavior(inputController);
@@ -392,6 +395,8 @@ public final class Baritone implements IBaritone {
         autoEatController.tick(emergencyAvoidanceController.activeThreat()
                 == baritone.server.EmergencyAvoidanceController.Threat.NONE);
         statusMessenger.tick();
+        taskLifecycleTracker.tick(tickCount, hasActiveTask());
+        baritone.server.llm.LlmPlanCoordinator.INSTANCE.tick(this, tickCount);
         gameEventHandler.onPlayerUpdate(new PlayerUpdateEvent(EventState.POST));
         fakeInteractionController.serverTick();
         TickEvent post = new TickEvent(EventState.POST, TickEvent.Type.IN, tickCount);
@@ -667,6 +672,10 @@ public final class Baritone implements IBaritone {
 
     public baritone.server.FakePlayerStatusMessenger getStatusMessenger() {
         return statusMessenger;
+    }
+
+    public baritone.server.llm.TaskLifecycleTracker getTaskLifecycleTracker() {
+        return taskLifecycleTracker;
     }
 
     public PauseProcess getPauseProcess() {

@@ -103,6 +103,8 @@ public final class ElytraProcess implements IElytraProcess {
                 if (Baritone.settings().elytraAllowEmergencyLand.value) {
                     enterLanding();
                 } else {
+                    baritone.getStatusMessenger().taskFailure(
+                            "鞘翅不可用且无法安全迫降");
                     onLostControl();
                     return;
                 }
@@ -115,6 +117,8 @@ public final class ElytraProcess implements IElytraProcess {
                 steeringTarget.getZ() + 0.5D - position.z);
         if (baritone.getPlayerContext().player().onGround()) {
             if (state == State.LANDING || horizontal <= 4.0D) {
+                baritone.getStatusMessenger().taskComplete(
+                        "已抵达鞘翅目标并着陆");
                 onLostControl();
                 return;
             }
