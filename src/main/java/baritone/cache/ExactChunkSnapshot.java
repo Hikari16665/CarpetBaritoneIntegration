@@ -114,31 +114,39 @@ public final class ExactChunkSnapshot {
     /**
      * Lithium-safe copy-on-write update for one changed section.
      *
-     * <p>Lithium attaches mutable random-tick bookkeeping to
-     * {@link LevelChunkSection}. A detached {@link LevelChunkSection#copy()}
-     * does not carry all of that bookkeeping, so calling
-     * {@code setBlockState} on the copy can enter Lithium with uninitialized
-     * data. Copy the already-updated authoritative section instead and never
-     * mutate the detached copy.</p>
+     * <p>Copy the already-updated authoritative section into CBI-owned block
+     * state storage. This keeps Lithium's mutable random-tick bookkeeping
+     * entirely outside the pathfinding snapshot.</p>
      */
     public ExactChunkSnapshot withSectionFrom(
             BlockPos pos, LevelChunk chunk, long newRevision) {
-        if (chunk.getPos().x() != chunkX
-                || chunk.getPos().z() != chunkZ
+        if (chunk.getPos().x != chunkX
+                || chunk.getPos().z != chunkZ
                 || pos.getY() < minY || pos.getY() >= maxY) {
             return this;
         }
         int index = (pos.getY() >> 4) - minSection;
-        LevelChunkSection[] source = chunk.getSections();
+        var source = chunk.getSections();
         if (index < 0 || index >= sections.length
                 || index >= source.length) {
             return this;
         }
-        LevelChunkSection authoritative = source[index];
-        LevelChunkSection[] updated = sections.clone();
-        updated[index] = authoritative == null || authoritative.hasOnlyAir()
-                ? null
-                : authoritative.copy();
+        var authoritative = source[index];
+        BlockState[][] updated = sections.clone();
+        if (authoritative == null || authoritative.hasOnlyAir()) {
+            updated[index] = null;
+        } else {
+            BlockState[] states = new BlockState[16 * 16 * 16];
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        states[index(x, y, z)] =
+                                authoritative.getBlockState(x, y, z);
+                    }
+                }
+            }
+            updated[index] = states;
+        }
         return new ExactChunkSnapshot(
                 chunkX, chunkZ, minSection, minY, maxY,
                 updated, newRevision);
