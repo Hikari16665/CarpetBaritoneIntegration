@@ -546,7 +546,7 @@ public final class LlmObservationTools {
         Map<Item, Integer> result = new LinkedHashMap<>();
         ItemContainerContents contents = stack.getOrDefault(
                 DataComponents.CONTAINER, ItemContainerContents.EMPTY);
-        contents.nonEmptyStream().forEach(inner -> result.merge(
+        contents.nonEmptyItemCopyStream().forEach(inner -> result.merge(
                 inner.getItem(), inner.getCount(), Integer::sum));
         return result;
     }
