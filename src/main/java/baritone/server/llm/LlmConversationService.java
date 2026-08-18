@@ -94,7 +94,7 @@ public final class LlmConversationService {
             reply(fakePlayer, sender, exception.getMessage());
             return true;
         }
-        MinecraftServer server = fakePlayer.getServer();
+        MinecraftServer server = fakePlayer.level().getServer();
         if (server == null) return true;
         pruneExpired(configuration.sessionTimeoutSeconds());
         TurnSnapshot snapshot = snapshot(server, sender, fakePlayer, text);
@@ -304,12 +304,12 @@ public final class LlmConversationService {
         BetterBlockPos pos2 = baritone.getSelectionPos2();
         ObjectNode root = MAPPER.createObjectNode();
         root.put("user_message", userText);
-        root.put("sender", sender.getGameProfile().getName());
-        root.put("fake_player", fake.getGameProfile().getName());
+        root.put("sender", sender.getGameProfile().name());
+        root.put("fake_player", fake.getGameProfile().name());
         root.put("sender_dimension", sender.level().dimension()
-                .location().toString());
+                .identifier().toString());
         root.put("fake_dimension", fake.level().dimension()
-                .location().toString());
+                .identifier().toString());
         position(root.putObject("sender_position"), sender);
         position(root.putObject("fake_position"), fake);
         ObjectNode selection = root.putObject("selection");
@@ -317,13 +317,13 @@ public final class LlmConversationService {
         blockPosition(selection, "pos2", pos2);
         ArrayNode players = root.putArray("online_players");
         server.getPlayerList().getPlayers().stream()
-                .map(player -> player.getGameProfile().getName())
+                .map(player -> player.getGameProfile().name())
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .limit(128)
                 .forEach(players::add);
         return new TurnSnapshot(server, sender.getUUID(), fake.getUUID(),
-                sender.getGameProfile().getName(),
-                fake.getGameProfile().getName(), userText,
+                sender.getGameProfile().name(),
+                fake.getGameProfile().name(), userText,
                 root.toString());
     }
 
@@ -403,7 +403,7 @@ public final class LlmConversationService {
 
     private static void reply(
             ServerPlayer fake, ServerPlayer recipient, String message) {
-        MinecraftServer server = fake.getServer();
+        MinecraftServer server = fake.level().getServer();
         if (server == null) return;
         String command = "tell "
                 + StringArgumentType.escapeIfRequired(
