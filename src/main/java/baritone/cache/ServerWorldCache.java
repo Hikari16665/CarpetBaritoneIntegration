@@ -3,6 +3,7 @@ package baritone.cache;
 import baritone.Baritone;
 import baritone.api.cache.ICachedRegion;
 import baritone.api.cache.ICachedWorld;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -51,6 +52,8 @@ public final class ServerWorldCache implements ICachedWorld {
     private static final Map<ServerLevel, ServerWorldCache> INSTANCES =
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Set<Block> TRACKED_BLOCKS = createTrackedBlocks();
+    private static final boolean LITHIUM_LOADED =
+            FabricLoader.getInstance().isModLoaded("lithium");
 
     private static Set<Block> createTrackedBlocks() {
         Set<Block> blocks = new HashSet<>(Set.of(
@@ -298,9 +301,14 @@ public final class ServerWorldCache implements ICachedWorld {
             return;
         }
         long revision = ++snapshotRevision;
-        ExactChunkSnapshot updated = previous == null
-                ? ExactChunkSnapshot.copyOf(chunk, revision)
-                : previous.withBlock(pos, state, revision);
+        ExactChunkSnapshot updated;
+        if (previous == null) {
+            updated = ExactChunkSnapshot.copyOf(chunk, revision);
+        } else if (LITHIUM_LOADED) {
+            updated = previous.withSectionFrom(pos, chunk, revision);
+        } else {
+            updated = previous.withBlock(pos, state, revision);
+        }
         if (updated == null) {
             updated = ExactChunkSnapshot.copyOf(chunk, revision);
         }
