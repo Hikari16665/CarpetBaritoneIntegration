@@ -3,7 +3,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.guardsquare:proguard-gradle:7.8.2'
+        classpath 'com.guardsquare:proguard-gradle:7.9.1'
     }
 }
 
@@ -126,6 +126,10 @@ def shrinkOpenAiSdk = tasks.register(
         libraryjars jmod, jarfilter: '!**.jar', filter: '!module-info.class'
     }
     configuration file('config/proguard-openai.pro')
+
+    if (System.getenv('CI')) {
+        verbose
+    }
 
     doFirst {
         shrunkOpenAiSdkJar.get().asFile.parentFile.mkdirs()
