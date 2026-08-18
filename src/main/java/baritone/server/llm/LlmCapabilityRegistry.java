@@ -3,7 +3,7 @@ package baritone.server.llm;
 import baritone.Baritone;
 import baritone.api.command.ICommand;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import me.nuoyuan.carpetbaritoneintegration.compat.SyncmaticaBridge;
 
@@ -335,21 +335,21 @@ public final class LlmCapabilityRegistry {
     }
 
     private static void block(String value) {
-        ResourceLocation id = resource(value);
+        Identifier id = resource(value);
         if (!BuiltInRegistries.BLOCK.containsKey(id)) {
             throw new IllegalArgumentException("unknown block: " + value);
         }
     }
 
     private static void item(String value) {
-        ResourceLocation id = resource(value);
+        Identifier id = resource(value);
         if (!BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("unknown item: " + value);
         }
     }
 
-    private static ResourceLocation resource(String value) {
-        ResourceLocation id = ResourceLocation.tryParse(
+    private static Identifier resource(String value) {
+        Identifier id = Identifier.tryParse(
                 value.contains(":") ? value : "minecraft:" + value);
         if (id == null) throw new IllegalArgumentException(
                 "invalid resource id: " + value);
