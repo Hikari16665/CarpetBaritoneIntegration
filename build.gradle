@@ -121,17 +121,20 @@ def shrinkOpenAiSdk = tasks.register(
     outjars shrunkOpenAiSdkJar
     libraryjars(configurations.openaiSdk - sdkInputs)
 
-    def jmods = fileTree("${System.getProperty('java.home')}/jmods") {
+    def jmodsDirectory = [System.getenv('JAVA_HOME'), System.getProperty('java.home')]
+            .findAll { candidate -> candidate != null && !candidate.isBlank() }
+            .collect { candidate -> file("${candidate}/jmods") }
+            .find { candidate -> new File(candidate, 'java.base.jmod').isFile() }
+    if (jmodsDirectory == null) {
+        throw new GradleException('Unable to locate JDK jmods (java.base.jmod) via JAVA_HOME or java.home')
+    }
+    def jmods = fileTree(jmodsDirectory) {
         include '*.jmod'
     }
     jmods.files.each { jmod ->
         libraryjars jmod, jarfilter: '!**.jar', filter: '!module-info.class'
     }
     configuration file('config/proguard-openai.pro')
-
-    if (System.getenv('CI')) {
-        verbose
-    }
 
     doFirst {
         shrunkOpenAiSdkJar.get().asFile.parentFile.mkdirs()

@@ -45,7 +45,7 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Build and test
-        run: ./gradlew clean build --stacktrace --info
+        run: ./gradlew clean build --stacktrace
 
       - name: Select release artifact
         id: artifact
