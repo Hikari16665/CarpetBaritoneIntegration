@@ -111,6 +111,39 @@ public final class ExactChunkSnapshot {
                 updated, newRevision);
     }
 
+    /**
+     * Lithium-safe copy-on-write update for one changed section.
+     *
+     * <p>Lithium attaches mutable random-tick bookkeeping to
+     * {@link LevelChunkSection}. A detached {@link LevelChunkSection#copy()}
+     * does not carry all of that bookkeeping, so calling
+     * {@code setBlockState} on the copy can enter Lithium with uninitialized
+     * data. Copy the already-updated authoritative section instead and never
+     * mutate the detached copy.</p>
+     */
+    public ExactChunkSnapshot withSectionFrom(
+            BlockPos pos, LevelChunk chunk, long newRevision) {
+        if (chunk.getPos().x() != chunkX
+                || chunk.getPos().z() != chunkZ
+                || pos.getY() < minY || pos.getY() >= maxY) {
+            return this;
+        }
+        int index = (pos.getY() >> 4) - minSection;
+        LevelChunkSection[] source = chunk.getSections();
+        if (index < 0 || index >= sections.length
+                || index >= source.length) {
+            return this;
+        }
+        LevelChunkSection authoritative = source[index];
+        LevelChunkSection[] updated = sections.clone();
+        updated[index] = authoritative == null || authoritative.hasOnlyAir()
+                ? null
+                : authoritative.copy();
+        return new ExactChunkSnapshot(
+                chunkX, chunkZ, minSection, minY, maxY,
+                updated, newRevision);
+    }
+
     public BlockState getBlockState(int x, int y, int z) {
         if ((x >> 4) != chunkX || (z >> 4) != chunkZ
                 || y < minY || y >= maxY) {
