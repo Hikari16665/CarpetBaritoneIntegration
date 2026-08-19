@@ -47,7 +47,8 @@ public final class LlmConversationService {
 
             不确定动作名和参数时先调用 list_capabilities/get_action_help；需要世界信息时
             调用只读观测工具。不要猜测容器内容、方块、坐标、玩家或蓝图。无限任务若有
-            后继任务必须设置超时。最终每轮必须且只能调用一个终结工具：
+            后继任务必须设置超时。有限寻路或方块任务若设置超时，通常至少使用 300 秒；
+            不需要人为截止时可设为 null。最终每轮必须且只能调用一个终结工具：
             reply_to_player、submit_plan 或 cancel_plan。终结工具不能与其他工具并行调用。
             submit_plan 后服务端会完整验证依赖、参数和权限；高影响计划只会被冻结后让
             玩家整体确认一次。不要声称未验证或未完成的任务已经成功。
@@ -88,8 +89,13 @@ public final class LlmConversationService {
             }
             session.queuedTurns++;
             session.lastAccessMillis = System.currentTimeMillis();
+            LOGGER.info("LLM turn queued sender={} fake={} queued={} chars={}",
+                    sender.getScoreboardName(), fake.getScoreboardName(),
+                    session.queuedTurns, text.length());
             Turn turn = new Turn(server, sender.getUUID(), fake.getUUID(), text,
-                    contextEnvelope(sender, fake, text));
+                    contextEnvelope(sender, fake, text),
+                    sender.getScoreboardName(), fake.getScoreboardName(),
+                    System.nanoTime());
             session.tail = session.tail.exceptionally(ignored -> null)
                     .thenCompose(ignored -> processTurn(session, turn, configuration))
                     .handle((ignored, error) -> {
@@ -99,6 +105,10 @@ public final class LlmConversationService {
                             session.queuedTurns = Math.max(0, session.queuedTurns - 1);
                             session.lastAccessMillis = System.currentTimeMillis();
                         }
+                        LOGGER.info("LLM turn finished sender={} fake={} elapsedMs={} "
+                                        + "remainingQueued={}", turn.senderName(),
+                                turn.fakeName(), elapsedMillis(turn.startedNanos()),
+                                session.queuedTurns);
                         return null;
                     });
         }
@@ -118,6 +128,15 @@ public final class LlmConversationService {
 
     private CompletableFuture<Void> processTurn(
             Session session, Turn turn, Configuration configuration) {
+        LOGGER.info("LLM turn start sender={} fake={} model={} protocol={} "
+                        + "maxOutputTokens={} historyTurns={} maxToolRounds={}",
+                turn.senderName(), turn.fakeName(),
+                configuration.gateway().model(),
+                OpenAiResponsesGateway.protocol(
+                        configuration.gateway().apiMode(),
+                        configuration.gateway().baseUrl()),
+                configuration.gateway().maxOutputTokens(),
+                configuration.historyTurns(), configuration.maxToolRounds());
         return onServerSupply(turn.server(), () -> resolveImmediate(session, turn))
                 .thenCompose(immediate -> {
                     if (immediate) return CompletableFuture.completedFuture(null);
@@ -173,10 +192,20 @@ public final class LlmConversationService {
         if (rounds >= configuration.maxToolRounds()) {
             return reject(turn, "模型工具往返超过限制，未执行任何新计划");
         }
+        long requestStarted = System.nanoTime();
+        LOGGER.info("LLM model round start sender={} fake={} round={} "
+                        + "priorCalls={} messages={}", turn.senderName(),
+                turn.fakeName(), rounds + 1, calls, messages.size());
         return gateway.requestTools(configuration.gateway(), messages,
                         LlmToolCatalog.definitions())
                 .thenCompose(modelTurn -> {
                     List<LlmToolCall> toolCalls = modelTurn.toolCalls();
+                    LOGGER.info("LLM model round complete sender={} fake={} round={} "
+                                    + "elapsedMs={} toolCalls={} tools={} textChars={}",
+                            turn.senderName(), turn.fakeName(), rounds + 1,
+                            elapsedMillis(requestStarted), toolCalls.size(),
+                            toolCalls.stream().map(LlmToolCall::name).toList(),
+                            modelTurn.text().length());
                     if (toolCalls.isEmpty()) {
                         return handleLegacyText(session, turn, configuration,
                                 messages, modelTurn.text(), rounds, calls, repairs);
@@ -230,6 +259,10 @@ public final class LlmConversationService {
                     .handle((output, error) -> {
                         ObjectNode result = error == null ? output : errorJson(
                                 "TOOL_ERROR", safeError(unwrap(error)));
+                        LOGGER.info("LLM observation sender={} fake={} tool={} "
+                                        + "ok={} resultChars={}", turn.senderName(),
+                                turn.fakeName(), call.name(), error == null,
+                                result.toString().length());
                         return LlmWireMessage.toolResult(call.id(),
                                 limitJson(result, configuration.maxResultChars()));
                     }));
@@ -249,6 +282,9 @@ public final class LlmConversationService {
             ServerPlayer fake = fake(turn);
             if (sender == null || fake == null) return TerminalResult.finished();
             JsonNode arguments = parseArguments(call.arguments());
+            LOGGER.info("LLM terminal tool sender={} fake={} tool={} round={} repairs={}",
+                    turn.senderName(), turn.fakeName(), call.name(), rounds + 1,
+                    repairs);
             return switch (call.name()) {
                 case "reply_to_player" -> {
                     String message = requiredText(arguments, "message");
@@ -303,6 +339,11 @@ public final class LlmConversationService {
             LlmPlanValidator.ValidatedPlan validated = LlmPlanValidator.validate(
                     plan, LlmCapabilityRegistry.from(baritone), maximumTasks);
             String digest = digest(plan.toJson().toString());
+            LOGGER.info("LLM plan validated sender={} fake={} planId={} digest={} "
+                            + "tasks={} requiresConfirmation={}",
+                    sender.getScoreboardName(), fake.getScoreboardName(),
+                    plan.planId(), digest, plan.tasks().size(),
+                    validated.requiresConfirmation());
             if (validated.requiresConfirmation()) {
                 synchronized (session) {
                     LlmPlanCoordinator.INSTANCE.reservePending(
@@ -419,7 +460,8 @@ public final class LlmConversationService {
                 settings.llmApiKey.value.trim(),
                 clamp(settings.llmRequestTimeoutSeconds.value, 5, 300),
                 settings.llmThinkingEnabled.value,
-                settings.llmReasoningEffort.value.trim()),
+                settings.llmReasoningEffort.value.trim(),
+                clamp(settings.llmMaxOutputTokens.value, 1_024, 131_072)),
                 Math.max(60, settings.llmSessionTimeoutSeconds.value),
                 clamp(settings.llmHistoryTurns.value, 2, 32),
                 clamp(settings.llmMaxPlanTasks.value, 1, 128),
@@ -551,6 +593,9 @@ public final class LlmConversationService {
     private static void reply(ServerPlayer fake, ServerPlayer recipient, String message) {
         MinecraftServer server = fake.getServer();
         if (server == null) return;
+        LOGGER.info("LLM reply fake={} recipient={} message={}",
+                fake.getScoreboardName(), recipient.getScoreboardName(),
+                compact(message, 1_000));
         String command = "tell " + StringArgumentType.escapeIfRequired(
                 recipient.getScoreboardName()) + " " + StringArgumentType.escapeIfRequired(
                 "[CBI-AI] " + message);
@@ -572,7 +617,11 @@ public final class LlmConversationService {
     }
 
     private static String compact(String value, int maximum) {
-        String result = value == null ? "" : value.replaceAll("\\s+", " ").trim();
+        String result = value == null ? "" : value.replaceAll("\\s+", " ")
+                .replaceAll("(?i)(llmApiKey\\s+)(\\\"[^\\\"]*\\\"|'[^']*'|\\S+)",
+                        "$1<redacted>")
+                .replaceAll("(?i)\\bsk-[A-Za-z0-9_-]{8,}\\b",
+                        "<redacted-key>").trim();
         return result.length() <= maximum ? result : result.substring(0, maximum) + "...";
     }
 
@@ -580,10 +629,17 @@ public final class LlmConversationService {
         return Math.max(minimum, Math.min(maximum, value));
     }
 
+    private static long elapsedMillis(long startedNanos) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - startedNanos);
+    }
+
     private record SessionKey(UUID sender, UUID fake) { }
     private record HistoryTurn(String userContent, String assistantJson) { }
     private record Turn(MinecraftServer server, UUID senderId, UUID fakeId,
-                        String userText, String userContent) { }
+                        String userText, String userContent,
+                        String senderName, String fakeName,
+                        long startedNanos) { }
     private record PendingPlan(LlmPlanValidator.ValidatedPlan plan, String digest) { }
     private record TerminalResult(boolean done, String error) {
         static TerminalResult finished() { return new TerminalResult(true, ""); }
