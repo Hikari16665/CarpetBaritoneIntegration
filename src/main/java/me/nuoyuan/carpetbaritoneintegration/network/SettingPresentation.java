@@ -207,6 +207,7 @@ final class SettingPresentation {
             case "llmApiKey" -> "AI 接口密钥";
             case "llmThinkingEnabled" -> "AI 深度思考";
             case "llmReasoningEffort" -> "AI 推理强度";
+            case "llmMaxOutputTokens" -> "AI 单轮最大输出令牌数";
             case "llmRequestTimeoutSeconds" -> "AI 请求超时秒数";
             case "llmSessionTimeoutSeconds" -> "AI 会话超时秒数";
             case "llmHistoryTurns" -> "AI 会话历史轮数";
@@ -334,6 +335,7 @@ final class SettingPresentation {
             case "llmApiKey" -> "Responses API 的鉴权密钥；直接粘贴密钥即可，误带的 Bearer 前缀或外层引号会被自动清理。设为持久默认值后会明文保存在服务端配置文件中，但聊天查询、日志和客户端设置同步只显示掩码。留空可连接无需鉴权的本地端点。";
             case "llmThinkingEnabled" -> "对 Chat Completions 添加 thinking={type:enabled}；用于 DeepSeek 等支持该扩展字段的服务商。";
             case "llmReasoningEffort" -> "对 Chat Completions 添加 reasoning_effort，例如 high；留空则不发送，不兼容时请留空。";
+            case "llmMaxOutputTokens" -> "每一次模型请求可使用的最大输出预算，包含 DeepSeek 等模型的隐藏思考 Token；默认 32768，服务端会限制在 1024 到 131072。";
             case "llmRequestTimeoutSeconds" -> "单轮模型 HTTP 请求的最长等待时间；请求异步执行，不会阻塞服务器 tick。";
             case "llmSessionTimeoutSeconds" -> "发送者与单个假人的连续会话在无新消息后保留多久；超时后历史和待确认任务会丢弃。";
             case "llmHistoryTurns" -> "每次请求最多重放多少轮对话。历史按发送者与假人隔离，并包含每轮受控的玩家位置和选区状态。";
