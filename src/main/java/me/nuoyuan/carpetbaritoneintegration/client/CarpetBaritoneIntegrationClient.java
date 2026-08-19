@@ -3,6 +3,7 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 import me.nuoyuan.carpetbaritoneintegration.network.PathNetwork;
 import me.nuoyuan.carpetbaritoneintegration.network.PathSnapshotPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.CommandResultPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadStatePayload;
 import net.minecraft.network.chat.Component;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -41,6 +42,10 @@ public final class CarpetBaritoneIntegrationClient
                                                 + payload.message()));
                             }
                         }));
+        ClientPlayNetworking.registerGlobalReceiver(
+                OverloadStatePayload.TYPE, (payload, context) ->
+                        context.client().execute(() ->
+                                ClientControlOptions.acceptOverload(payload)));
         ClientPlayConnectionEvents.DISCONNECT.register(
                 (handler, client) -> {
                     ClientPathRenderer.clear();
