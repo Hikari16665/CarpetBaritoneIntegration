@@ -60,6 +60,7 @@ public final class ServerFakeInteractionController {
     private long lastBreakProgressTick = Long.MIN_VALUE;
     private long lastBreakRequestTick = Long.MIN_VALUE;
     private long nextBreakAllowedTick;
+    private long lastOverloadVisualTick = Long.MIN_VALUE;
 
     public ServerFakeInteractionController(Baritone baritone) {
         this.baritone = Objects.requireNonNull(baritone);
@@ -86,6 +87,11 @@ public final class ServerFakeInteractionController {
     }
 
     public void lookAt(BlockPos pos) {
+        if (isOverload()) {
+            long tick = player.level().getGameTime();
+            if (lastOverloadVisualTick == tick) return;
+            lastOverloadVisualTick = tick;
+        }
         Rotation rotation = RotationUtils.calcRotationFromVec3d(
                 baritone.getPlayerContext().playerHead(),
                 pos.getCenter(),
@@ -108,6 +114,21 @@ public final class ServerFakeInteractionController {
         return breakBlock(pos, false);
     }
 
+    /** Executes a break authorized by a calculated OVERLOAD path. */
+    public boolean breakPlannedBlock(BlockPos pos) {
+        if (!isOverload()) return false;
+        long gameTime = player.level().getGameTime();
+        BlockState state = player.level().getBlockState(pos);
+        if (state.isAir()) return true;
+        baritone.getInventoryController().ensureBestToolOnHotbar(state);
+        MovementHelper.switchToBestToolFor(
+                baritone.getPlayerContext(), state);
+        boolean visual = lastOverloadVisualTick != gameTime;
+        lookAt(pos);
+        if (visual) player.swing(InteractionHand.MAIN_HAND, true);
+        return finishBreak(pos, gameTime, true);
+    }
+
     private boolean breakBlock(BlockPos pos, boolean requireCurrentRay) {
         long gameTime = player.level().getGameTime();
         lastBreakRequestTick = gameTime;
@@ -127,6 +148,16 @@ public final class ServerFakeInteractionController {
         baritone.getInventoryController().ensureBestToolOnHotbar(state);
         MovementHelper.switchToBestToolFor(
                 baritone.getPlayerContext(), state);
+        if (isOverload()) {
+            resetBreakProgress();
+            activeBreakTarget = pos.immutable();
+            boolean visual = lastOverloadVisualTick != gameTime;
+            lookAt(pos);
+            if (visual) {
+                player.swing(InteractionHand.MAIN_HAND, true);
+            }
+            return finishBreak(pos, gameTime, true);
+        }
         double increment = state.getDestroyProgress(
                 player, player.level(), pos);
         float hardness = state.getDestroySpeed(player.level(), pos);
@@ -180,6 +211,7 @@ public final class ServerFakeInteractionController {
 
     /** Fake interaction removes crosshair alignment, not solid occlusion. */
     public boolean canBreakFromHere(BlockPos pos) {
+        if (isOverload()) return true;
         if (!canReach(pos)) return false;
         return findVisibleBreakPoint(pos) != null;
     }
@@ -297,10 +329,11 @@ public final class ServerFakeInteractionController {
         }
         resetBreakProgress();
         if (destroyed) {
-            nextBreakAllowedTick = BlockBreakTiming.afterSuccessfulBreak(
-                    nextBreakAllowedTick, gameTime,
-                    Baritone.settings().blockBreakSpeed.value,
-                    instantBreak);
+            nextBreakAllowedTick = isOverload() ? gameTime
+                    : BlockBreakTiming.afterSuccessfulBreak(
+                            nextBreakAllowedTick, gameTime,
+                            Baritone.settings().blockBreakSpeed.value,
+                            instantBreak);
         }
         return destroyed;
     }
@@ -331,6 +364,62 @@ public final class ServerFakeInteractionController {
             return true;
         }
         return placeFullBlockDirect(target, blockItem, stack);
+    }
+
+    /** Places the support requested by a calculated OVERLOAD movement. */
+    public boolean placePlannedSupport(BlockPos target) {
+        if (!isOverload()) return false;
+        BlockState current = player.level().getBlockState(target);
+        if (!current.canBeReplaced()) return true;
+        boolean creative = player.getAbilities().instabuild;
+        if (!creative && !baritone.getInventoryController()
+                .selectThrowawayForLocation(
+                        true, target.getX(), target.getY(), target.getZ())) {
+            return false;
+        }
+        ItemStack stack = player.getMainHandItem();
+        BlockState placed = stack.getItem() instanceof BlockItem blockItem
+                ? blockItem.getBlock().defaultBlockState()
+                : creative ? Blocks.STONE.defaultBlockState() : null;
+        if (placed == null || placed.getCollisionShape(
+                player.level(), target).isEmpty()) {
+            if (!creative) return false;
+            placed = Blocks.STONE.defaultBlockState();
+        }
+        if (!player.level().setBlockAndUpdate(target, placed)) return false;
+        baritone.getCleanProcess().recordPlacedSupport(target);
+        lookAt(target);
+        if (!creative) stack.shrink(1);
+        player.inventoryMenu.broadcastChanges();
+        if (player.level() instanceof ServerLevel level
+                && Baritone.settings().repackOnAnyBlockChange.value) {
+            ServerWorldCache.get(level).invalidateChunk(
+                    target.getX() >> 4, target.getZ() >> 4);
+        }
+        return true;
+    }
+
+    /** Opens a door, gate, or trapdoor used by a calculated path. */
+    public boolean openPlannedPassage(BlockPos pos) {
+        if (!isOverload()) return false;
+        BlockState state = player.level().getBlockState(pos);
+        if (!state.hasProperty(BlockStateProperties.OPEN)) return false;
+        if (state.getValue(BlockStateProperties.OPEN)) return true;
+        BlockState opened = state.setValue(BlockStateProperties.OPEN, true);
+        if (!player.level().setBlockAndUpdate(pos, opened)) return false;
+        if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) {
+            DoubleBlockHalf half = state.getValue(
+                    BlockStateProperties.DOUBLE_BLOCK_HALF);
+            BlockPos other = half == DoubleBlockHalf.LOWER
+                    ? pos.above() : pos.below();
+            BlockState otherState = player.level().getBlockState(other);
+            if (otherState.hasProperty(BlockStateProperties.OPEN)) {
+                player.level().setBlockAndUpdate(other,
+                        otherState.setValue(
+                                BlockStateProperties.OPEN, true));
+            }
+        }
+        return true;
     }
 
     /** Printer water transaction for schematic source-fluid cells. */
@@ -417,7 +506,8 @@ public final class ServerFakeInteractionController {
         BlockState current = player.level().getBlockState(target);
         if (!current.canBeReplaced()) return true;
         BlockState placed = blockItem.getBlock().defaultBlockState();
-        if (placed.getCollisionShape(player.level(), target).isEmpty()
+        if (!isOverload()
+                && (placed.getCollisionShape(player.level(), target).isEmpty()
                 || !placed.canSurvive(player.level(), target)
                 || !player.level().isUnobstructed(
                         null, placed.getCollisionShape(
@@ -479,6 +569,10 @@ public final class ServerFakeInteractionController {
         }
         BlockState current = player.level().getBlockState(target);
         if (!current.canBeReplaced()) return false;
+        if (isOverload()) {
+            return printerExactPlacement(
+                    target, desired, acceptableState, stack, execute);
+        }
         if (!(stack.getItem() instanceof BlockItem)) {
             return printerExactPlacement(
                     target, desired, acceptableState, stack, execute);
@@ -580,6 +674,7 @@ public final class ServerFakeInteractionController {
         }
 
         private boolean ready(BlockPos target) {
+            if (isOverload()) return true;
             long tick = player.level().getGameTime();
             int interval = Math.max(0,
                     Baritone.settings().printerActionIntervalTicks.value);
@@ -624,11 +719,12 @@ public final class ServerFakeInteractionController {
             BlockPos target, BlockState desired,
             Predicate<BlockState> acceptableState,
             ItemStack stack, boolean execute) {
+        boolean overload = isOverload();
         if (stack.getItem() != desired.getBlock().asItem()
                 && (!(stack.getItem() instanceof BlockItem blockItem)
                     || blockItem.getBlock() != desired.getBlock())
                 || !acceptableState.test(desired)
-                || !desired.canSurvive(player.level(), target)
+                || !overload && (!desired.canSurvive(player.level(), target)
                 || !player.level().isUnobstructed(
                         null, desired.getCollisionShape(
                                 player.level(), target).move(
@@ -649,7 +745,7 @@ public final class ServerFakeInteractionController {
         // "Print in air" is an explicit Printer mode. Gravity blocks remain
         // support-bound because otherwise the accepted placement immediately
         // becomes an entity and the schematic cell stays incorrect.
-        if (!supported
+        if (!overload && !supported
                 && (!Baritone.settings().printerPrintInAir.value
                 || desired.getBlock() instanceof FallingBlock)) {
             return false;
@@ -679,7 +775,7 @@ public final class ServerFakeInteractionController {
             return false;
         }
         PrinterCompanion companion = printerCompanion(target, desired);
-        if (companion != null) {
+        if (!overload && companion != null) {
             BlockState companionCurrent = player.level()
                     .getBlockState(companion.pos());
             if (!companionCurrent.canBeReplaced()
@@ -702,7 +798,7 @@ public final class ServerFakeInteractionController {
             return false;
         }
         if (companion != null
-                && (!companion.state().canSurvive(
+                && (!overload && !companion.state().canSurvive(
                         player.level(), companion.pos())
                     || !player.level().setBlockAndUpdate(
                             companion.pos(), companion.state()))) {
@@ -854,11 +950,20 @@ public final class ServerFakeInteractionController {
     public boolean fillFluidWithSelectedBlock(BlockPos target) {
         if (!canReach(target)) return false;
         ItemStack stack = player.getMainHandItem();
-        if (!(stack.getItem() instanceof BlockItem blockItem)) return false;
         BlockState current = player.level().getBlockState(target);
         if (current.getFluidState().isEmpty()
                 || !current.canBeReplaced()) return false;
-        BlockState placed = blockItem.getBlock().defaultBlockState();
+        BlockState placed = stack.getItem() instanceof BlockItem blockItem
+                ? blockItem.getBlock().defaultBlockState() : null;
+        // Creative players can normally place without owning the item. Clean
+        // therefore uses a neutral temporary plug when no full block is held;
+        // the plug is still recorded and removed in the later break phase.
+        if ((placed == null || placed.getCollisionShape(
+                player.level(), target).isEmpty())
+                && isOverload() && player.getAbilities().instabuild) {
+            placed = Blocks.STONE.defaultBlockState();
+        }
+        if (placed == null) return false;
         if (placed.getCollisionShape(player.level(), target).isEmpty()
                 || !player.level().setBlockAndUpdate(target, placed)) {
             return false;
@@ -1071,5 +1176,9 @@ public final class ServerFakeInteractionController {
 
     public boolean canReach(Container ignored, BlockPos pos) {
         return canReach(pos);
+    }
+
+    private boolean isOverload() {
+        return OverloadModeManager.INSTANCE.isEnabled(baritone);
     }
 }

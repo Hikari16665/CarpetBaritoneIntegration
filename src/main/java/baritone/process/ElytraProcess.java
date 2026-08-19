@@ -12,6 +12,7 @@ import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
 import baritone.api.utils.input.Input;
 import baritone.api.utils.interfaces.IGoalRenderPos;
+import baritone.server.OverloadModeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -55,15 +56,16 @@ public final class ElytraProcess implements IElytraProcess {
 
     @Override
     public void pathTo(BlockPos destination) {
+        boolean overload = OverloadModeManager.INSTANCE.isEnabled(baritone);
         ItemStack chest = baritone.getPlayerContext().player()
                 .getItemBySlot(EquipmentSlot.CHEST);
-        if (!chest.is(Items.ELYTRA)) {
+        if (!overload && !chest.is(Items.ELYTRA)) {
             throw new IllegalArgumentException("假人胸甲栏没有鞘翅");
         }
         boolean hasRocket = baritone.getInventoryController()
                 .hasAccessibleItem(
                         stack -> stack.is(Items.FIREWORK_ROCKET));
-        if (!hasRocket) {
+        if (!overload && !hasRocket) {
             throw new IllegalArgumentException(
                     "假人物品栏没有烟花火箭，无法爬升到巡航高度");
         }
@@ -92,6 +94,20 @@ public final class ElytraProcess implements IElytraProcess {
     public void serverTick() {
         if (!isActive()) return;
         ticks++;
+        if (OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            if (ticks < 2) return;
+            var player = baritone.getPlayerContext().player();
+            var world = baritone.getPlayerContext().world();
+            world.getChunk(destination.getX() >> 4,
+                    destination.getZ() >> 4);
+            player.teleportTo(destination.getX() + 0.5D,
+                    destination.getY(), destination.getZ() + 0.5D);
+            player.setDeltaMovement(Vec3.ZERO);
+            baritone.getStatusMessenger().taskComplete(
+                    "超载模式已抵达鞘翅目标");
+            onLostControl();
+            return;
+        }
         ItemStack elytra = baritone.getPlayerContext().player()
                 .getItemBySlot(EquipmentSlot.CHEST);
         if (!elytra.is(Items.ELYTRA)

@@ -11,6 +11,7 @@ import baritone.api.utils.RotationUtils;
 import baritone.api.utils.input.Input;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BlockStateInterface;
+import baritone.server.OverloadModeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -64,6 +65,35 @@ public final class FarmProcess implements IFarmProcess {
     }
 
     public void serverTick() {
+        if (!OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            serverTickOnce();
+            return;
+        }
+        long deadline = System.nanoTime() + 25_000_000L;
+        for (int operation = 0; operation < 4096
+                && System.nanoTime() < deadline; operation++) {
+            BlockPos beforeTarget = target;
+            BlockPos beforeReplant = replantAt;
+            BlockPos beforeCultivation = cultivationTarget;
+            BlockState beforeState = beforeTarget == null ? null
+                    : baritone.getPlayerContext().world()
+                            .getBlockState(beforeTarget);
+            rescanDelay = 0;
+            serverTickOnce();
+            boolean blockChanged = beforeTarget != null
+                    && !beforeState.equals(baritone.getPlayerContext().world()
+                            .getBlockState(beforeTarget));
+            if (!blockChanged
+                    && java.util.Objects.equals(beforeTarget, target)
+                    && java.util.Objects.equals(beforeReplant, replantAt)
+                    && java.util.Objects.equals(
+                            beforeCultivation, cultivationTarget)) {
+                break;
+            }
+        }
+    }
+
+    private void serverTickOnce() {
         if (!active || baritone.getPathExecutor() != null) return;
         // Release the previous interaction before choosing this tick's
         // action. Otherwise a harvested target leaves ATTACK held while the

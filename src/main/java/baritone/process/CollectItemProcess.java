@@ -7,6 +7,7 @@ import baritone.api.pathing.goals.GoalNear;
 import baritone.api.process.ICollectItemProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
+import baritone.server.OverloadModeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;
@@ -155,9 +156,12 @@ public final class CollectItemProcess implements ICollectItemProcess {
         switch (state) {
             case SEARCHING -> scanTick();
             case ACQUIRING -> {
-                if (target != null && baritone
-                        .getFakeInteractionController()
-                        .canReach(target.pos)) {
+                boolean ready = target != null
+                        && (OverloadModeManager.INSTANCE.isEnabled(baritone)
+                        ? isNear(target.pos)
+                        : baritone.getFakeInteractionController()
+                                .canReach(target.pos));
+                if (ready) {
                     baritone.cancelPath();
                     takeFromTarget();
                 }
