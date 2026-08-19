@@ -20,6 +20,7 @@ import baritone.api.selection.ISelection;
 import baritone.pathing.movement.CalculationContext;
 import baritone.pathing.movement.MovementHelper;
 import baritone.cache.ServerWorldCache;
+import baritone.server.OverloadModeManager;
 import baritone.utils.BaritoneProcessHelper;
 import baritone.utils.BlockStateInterface;
 import baritone.utils.ToolSet;
@@ -171,6 +172,10 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
             rescan();
         }
         prune();
+
+        if (OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            return overloadMineTick(isSafeToCancel, inventoryCount);
+        }
 
         BlockPos reachable = knownOreLocations.stream()
                 .filter(this::withinReach)
@@ -556,6 +561,60 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
 
     private boolean withinReach(BlockPos pos) {
         return baritone.getFakeInteractionController().canReach(pos);
+    }
+
+    private PathingCommand overloadMineTick(
+            boolean isSafeToCancel, int inventoryCount) {
+        if (!isSafeToCancel) {
+            return new PathingCommand(null,
+                    PathingCommandType.REQUEST_PAUSE);
+        }
+        int remaining = desiredQuantity <= 0 ? Integer.MAX_VALUE
+                : Math.max(0, desiredQuantity
+                        - (inventoryCount - initialQuantity));
+        if (remaining == 0) {
+            return new PathingCommand(null,
+                    PathingCommandType.REQUEST_PAUSE);
+        }
+        List<BlockPos> batch = new ArrayList<>(knownOreLocations);
+        batch.sort(Comparator.comparingDouble(ctx.playerFeet()::distSqr));
+        long deadline = System.nanoTime() + 35_000_000L;
+        int broken = 0;
+        for (BlockPos pos : batch) {
+            if (broken >= remaining || broken >= 8192
+                    || System.nanoTime() >= deadline) break;
+            BlockState state = ctx.world().getBlockState(pos);
+            // OVERLOAD removes mining time, not physical presence. A remote
+            // target must first publish its Goal, calculate/replay the route,
+            // and teleport; only the resulting local cluster is mined.
+            if (!filter.has(state) || !withinReach(pos)) continue;
+            baritone.getInventoryController().ensureBestToolOnHotbar(state);
+            rememberDesiredDrops(pos);
+            if (baritone.getFakeInteractionController().breakBlock(pos)) {
+                anticipatedDrops.put(pos,
+                        (long) tickCount + DROP_TIMEOUT_TICKS);
+                knownOreLocations.remove(pos);
+                broken++;
+            }
+        }
+        if (broken > 0) {
+            nextDropScanTick = Math.min(nextDropScanTick, tickCount);
+            System.out.println("[CBI-OVERLOAD] mine player="
+                    + ctx.player().getScoreboardName()
+                    + " broken=" + broken
+                    + " remainingKnown=" + knownOreLocations.size());
+            return new PathingCommand(null,
+                    PathingCommandType.REQUEST_PAUSE);
+        }
+        if (!knownOreLocations.isEmpty()) {
+            CalculationContext calculation = new CalculationContext(baritone);
+            Goal[] goals = currentGoalBatch().stream()
+                    .map(pos -> coalesce(pos, calculation))
+                    .toArray(Goal[]::new);
+            return new PathingCommand(new GoalComposite(goals),
+                    PathingCommandType.REVALIDATE_GOAL_AND_PATH);
+        }
+        return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
     }
 
     private void rememberDesiredDrops(BlockPos pos) {

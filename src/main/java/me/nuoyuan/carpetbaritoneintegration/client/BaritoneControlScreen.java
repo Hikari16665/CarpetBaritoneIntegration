@@ -20,6 +20,7 @@ public final class BaritoneControlScreen extends AbstractScreen {
     private String filter = "";
     private ButtonWidget fakeSelector;
     private ButtonWidget categorySelector;
+    private ButtonWidget overloadButton;
     private EditBoxWidget search;
     private boolean awaitingOptions;
 
@@ -36,13 +37,18 @@ public final class BaritoneControlScreen extends AbstractScreen {
         fakeIndex = ClientControlOptions.selectedFakeIndex();
         int panelWidth = Math.min(640, Math.max(360, width - 32));
         int left = (width - panelWidth) / 2;
-        int top = Math.max(10, (height - Math.min(390, height - 20)) / 2);
+        int top = Math.max(10, (height - Math.min(420, height - 20)) / 2);
         addComponent(new TextComponent(left, top,
                 Component.literal("CBI 控制面板")));
         addComponent(new TextComponent(left + 105, top,
                 Component.literal("服务端 Baritone 假人调度中心")));
 
-        fakeSelector = new ButtonWidget(left, top + 22,
+        overloadButton = new ButtonWidget(left, top + 22,
+                panelWidth, 22, Component.empty(), button ->
+                minecraft.setScreen(new OverloadConfirmScreen(this)));
+        addWidget(overloadButton);
+
+        fakeSelector = new ButtonWidget(left, top + 50,
                 panelWidth - 86, 22, Component.empty(), button -> {
             List<String> fakes = ClientControlOptions.fakePlayers();
             if (!fakes.isEmpty()) {
@@ -52,37 +58,38 @@ public final class BaritoneControlScreen extends AbstractScreen {
             }
         });
         addWidget(fakeSelector);
-        addWidget(new ButtonWidget(left + panelWidth - 80, top + 22,
+        addWidget(new ButtonWidget(left + panelWidth - 80, top + 50,
                 80, 22, Component.literal("刷新列表"), button -> {
             awaitingOptions = true;
             ClientControlOptions.request();
         }));
 
-        categorySelector = new ButtonWidget(left, top + 50,
+        categorySelector = new ButtonWidget(left, top + 78,
                 150, 22, Component.empty(), button -> {
             categoryIndex++;
             if (categoryIndex >= Category.values().length) categoryIndex = -1;
             rebuild();
         });
         addWidget(categorySelector);
-        search = new EditBoxWidget(font, left + 156, top + 50,
+        search = new EditBoxWidget(font, left + 156, top + 78,
                 panelWidth - 232, 22, Component.literal("搜索命令"));
         search.setHint(Component.literal("按中文名称或命令关键字搜索"));
         search.setValue(filter);
         addWidget(search);
-        addWidget(new ButtonWidget(left + panelWidth - 70, top + 50,
+        addWidget(new ButtonWidget(left + panelWidth - 70, top + 78,
                 70, 22, Component.literal("搜索"), button -> {
             filter = search.getValue().trim();
             rebuild();
         }));
 
-        int scrollTop = top + 78;
+        int scrollTop = top + 106;
         int scrollHeight = Math.max(88,
                 Math.min(260, height - scrollTop - 38));
         addCommandCatalogue(left, scrollTop, panelWidth, scrollHeight);
         addQuickControls(left, scrollTop + scrollHeight + 6, panelWidth);
         refreshFake();
         refreshCategory();
+        refreshOverload();
         super.init();
     }
 
@@ -199,6 +206,21 @@ public final class BaritoneControlScreen extends AbstractScreen {
         categorySelector.setMessage(Component.literal("分类："
                 + (categoryIndex < 0 ? "全部"
                 : Category.values()[categoryIndex].title)));
+    }
+
+    private void refreshOverload() {
+        if (overloadButton == null) return;
+        overloadButton.setMessage(Component.literal(
+                "OVERLOAD MODE · 超载模式 · "
+                        + (ClientControlOptions.overloadEnabled()
+                        ? "ON" : "OFF")
+                        + (ClientControlOptions.canManageOverload()
+                        ? "" : " · 仅管理员")));
+        overloadButton.active = ClientControlOptions.canManageOverload();
+    }
+
+    void overloadStateUpdated() {
+        refreshOverload();
     }
 
     private void rememberFake() {
