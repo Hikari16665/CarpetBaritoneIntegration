@@ -23,6 +23,7 @@ import baritone.api.pathing.goals.Goal;
 import baritone.api.pathing.movement.ActionCosts;
 import baritone.pathing.precompute.PrecomputedData;
 import baritone.utils.BlockStateInterface;
+import baritone.server.OverloadModeManager;
 import baritone.utils.ToolSet;
 import baritone.utils.pathing.BetterWorldBorder;
 import net.minecraft.core.BlockPos;
@@ -129,7 +130,11 @@ public class CalculationContext {
             this.cleanMax = null;
         }
         this.hasThrowaway = !collectOnly && Baritone.settings().allowPlace.value
-                && baritone.getInventoryController().hasGenericThrowaway();
+                && (player.getAbilities().instabuild
+                && baritone instanceof Baritone serverBaritone
+                && OverloadModeManager.INSTANCE
+                        .isEnabled(serverBaritone)
+                || baritone.getInventoryController().hasGenericThrowaway());
         this.hasWaterBucket = !collectOnly
                 && Baritone.settings().allowWaterBucketFall.value
                 && baritone.getInventoryController()

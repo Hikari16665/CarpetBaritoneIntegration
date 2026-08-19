@@ -38,6 +38,14 @@ public class GoalRunAway implements Goal {
 
     private final Integer maintainY;
 
+    public BlockPos[] origins() { return from.clone(); }
+
+    public int distance() {
+        return (int) Math.ceil(Math.sqrt(distanceSq));
+    }
+
+    public Integer maintainY() { return maintainY; }
+
     public GoalRunAway(double distance, BlockPos... from) {
         this(distance, null, from);
     }

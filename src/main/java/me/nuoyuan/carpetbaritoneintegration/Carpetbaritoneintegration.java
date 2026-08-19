@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
@@ -29,6 +30,7 @@ import me.nuoyuan.carpetbaritoneintegration.network.CommandResultPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.SettingOptions;
 import baritone.server.BasicGoalCommandHandler;
 import baritone.server.ServerSettingsStore;
+import baritone.server.OverloadModeManager;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import carpet.patches.EntityPlayerMPFake;
 import java.util.LinkedHashSet;
@@ -38,6 +40,9 @@ import java.nio.file.Path;
 import baritone.utils.schematic.SchematicSystem;
 import me.nuoyuan.carpetbaritoneintegration.compat.SyncmaticaBridge;
 import baritone.server.llm.LlmConversationService;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadStatePayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadStateRequestPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadTogglePayload;
 
 public class Carpetbaritoneintegration implements ModInitializer {
     public static final ServerBaritoneRegistry BARITONES = new ServerBaritoneRegistry();
@@ -134,11 +139,50 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                             result.success(),
                                             result.message()));
                         }));
+        ServerPlayNetworking.registerGlobalReceiver(
+                OverloadStateRequestPayload.TYPE, (payload, context) ->
+                        context.server().execute(() ->
+                                sendOverloadState(context.player(), "")));
+        ServerPlayNetworking.registerGlobalReceiver(
+                OverloadTogglePayload.TYPE, (payload, context) ->
+                        context.server().execute(() -> {
+                            boolean permitted = OverloadModeManager.INSTANCE
+                                    .setEnabled(context.server(),
+                                            context.player(),
+                                            payload.enabled());
+                            if (permitted) {
+                                BARITONES.forEach(instance -> {
+                                    instance.cancelPath();
+                                    instance.getOverloadExecutor().reset();
+                                    instance.getInputOverrideHandler()
+                                            .clearAllKeys();
+                                });
+                                broadcastOverloadState(context.server(),
+                                        payload.enabled()
+                                                ? "超载模式已开启"
+                                                : "超载模式已关闭");
+                            } else {
+                                sendOverloadState(context.player(),
+                                        "权限不足：只有管理员可以修改超载模式");
+                            }
+                        }));
         BaritoneAPI.setProvider(new ServerBaritoneProvider(BARITONES));
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register(
+                (entity, source, amount) ->
+                        !(entity instanceof EntityPlayerMPFake fake
+                        && OverloadModeManager.INSTANCE.isEnabled(fake)));
+        ServerLivingEntityEvents.ALLOW_DEATH.register(
+                (entity, source, amount) ->
+                        !(entity instanceof EntityPlayerMPFake fake
+                        && OverloadModeManager.INSTANCE.isEnabled(fake)));
         ServerLifecycleEvents.SERVER_STARTING.register(
                 server -> ServerSettingsStore.load());
-        ServerTickEvents.END_SERVER_TICK.register(BARITONES::tick);
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            OverloadModeManager.INSTANCE.tick(server);
+            BARITONES.tick(server);
+        });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            OverloadModeManager.INSTANCE.clear(server);
             LlmConversationService.INSTANCE.clear();
             baritone.server.llm.LlmObservationScheduler.INSTANCE.clear(server);
             BARITONES.clear();
@@ -200,6 +244,25 @@ public class Carpetbaritoneintegration implements ModInitializer {
                                 chunk.getPos().x, chunk.getPos().z));
                     }
                 }));
+    }
+
+    private static void broadcastOverloadState(
+            net.minecraft.server.MinecraftServer server,
+            String message) {
+        for (ServerPlayer player
+                : server.getPlayerList().getPlayers()) {
+            sendOverloadState(player, message);
+        }
+    }
+
+    private static void sendOverloadState(
+            ServerPlayer player, String message) {
+        if (!ServerPlayNetworking.canSend(
+                player, OverloadStatePayload.TYPE)) return;
+        OverloadModeManager manager = OverloadModeManager.INSTANCE;
+        ServerPlayNetworking.send(player, new OverloadStatePayload(
+                manager.isEnabled(player), manager.canManage(player),
+                message == null ? "" : message));
     }
 
     private static List<String> schematicFiles() {
