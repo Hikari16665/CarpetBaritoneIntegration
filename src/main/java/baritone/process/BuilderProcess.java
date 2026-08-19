@@ -82,8 +82,10 @@ import static baritone.api.pathing.movement.ActionCosts.COST_INF;
 
 /** Pure-server schematic builder process. */
 public final class BuilderProcess implements IBuilderProcess {
-    private static final int SCHEMATIC_SCAN_BUDGET_PER_TICK = 8192;
-    private static final int MATERIAL_ESTIMATE_SAMPLE_LIMIT = 65_536;
+    private static final int SCHEMATIC_SCAN_BUDGET_PER_TICK = 1024;
+    private static final long SCHEMATIC_SCAN_TIME_BUDGET_NANOS = 1_500_000L;
+    private static final int MATERIAL_ESTIMATE_SAMPLE_LIMIT = 2048;
+    private static final long MATERIAL_ESTIMATE_TIME_BUDGET_NANOS = 1_500_000L;
 
     private enum ScanResult { FOUND, PENDING, COMPLETE }
 
@@ -107,7 +109,7 @@ public final class BuilderProcess implements IBuilderProcess {
     private boolean observedPathExecutor;
     private List<BlockState> approxPlaceable = Collections.emptyList();
     private int layer;
-    private int scanCursor;
+    private long scanCursor;
     private int tickCount;
     private boolean missingInScan;
     private int completedBuilds;
@@ -454,21 +456,28 @@ public final class BuilderProcess implements IBuilderProcess {
         target = null;
         desired = null;
         if (selectNextIncorrect()) return ScanResult.FOUND;
+        if (materialRecovery.isActive()) return ScanResult.PENDING;
         while (isActive()) {
             int minY = currentMinLayer();
             int maxY = currentMaxLayer();
             int width = schematic.widthX();
             int length = schematic.lengthZ();
             int layerHeight = maxY - minY + 1;
-            int layerVolume = width * length * layerHeight;
+            long layerVolume = (long) width * length * layerHeight;
             int checked = 0;
+            long deadline = System.nanoTime()
+                    + SCHEMATIC_SCAN_TIME_BUDGET_NANOS;
             while (scanCursor < layerVolume
                     && checked++ < SCHEMATIC_SCAN_BUDGET_PER_TICK) {
-                int index = scanCursor++;
-                int x = index % width;
-                int yz = index / width;
-                int z = yz % length;
-                int y = minY + yz / length;
+                if ((checked & 31) == 0
+                        && System.nanoTime() >= deadline) {
+                    break;
+                }
+                long index = scanCursor++;
+                int x = (int) (index % width);
+                long yz = index / width;
+                int z = (int) (yz % length);
+                int y = minY + (int) (yz / length);
                 BlockPos worldPos = origin.offset(x, y, z);
                 if (failedUntil.containsKey(worldPos)) continue;
                 if (!baritone.getPlayerContext().world()
@@ -521,6 +530,7 @@ public final class BuilderProcess implements IBuilderProcess {
             }
             scanCursor = 0;
             if (selectNextIncorrect()) return ScanResult.FOUND;
+            if (materialRecovery.isActive()) return ScanResult.PENDING;
             if (incorrectPositions.stream()
                     .anyMatch(failedUntil::containsKey)) {
                 // A temporarily occluded placement, flowing liquid, or failed
@@ -620,7 +630,10 @@ public final class BuilderProcess implements IBuilderProcess {
             }
             if (!wanted.isAir()
                     && !canSatisfy(current, wanted)) {
-                requestRequiredMaterial(current, wanted);
+                if (requestRequiredMaterial(current, wanted)) {
+                    incorrectPositions.removeAll(nowCorrect);
+                    return false;
+                }
                 missingInScan = true;
                 continue;
             }
@@ -1643,8 +1656,18 @@ public final class BuilderProcess implements IBuilderProcess {
         }
         net.minecraft.world.item.Item item =
                 wanted.getBlock().asItem();
+        String key = "item:" + BuiltInRegistries.ITEM.getKey(item);
+        // Estimating demand walks the schematic. Never do that work when a
+        // refill is already running or this material has already been ruled
+        // out; request() can only service one material at a time anyway.
+        if (materialRecovery.isActive()) return true;
+        if (unavailableMaterialKeys.contains(key)) return false;
+        if (!Baritone.settings().printerContainerRefill.value) {
+            unavailableMaterialKeys.add(key);
+            return false;
+        }
         return requestContainerRefill(
-                "item:" + BuiltInRegistries.ITEM.getKey(item),
+                key,
                 stack -> stack.is(item),
                 estimateRemainingPlacementItems(item),
                 Baritone.settings().printerContainerRefillBatch.value);
@@ -1717,34 +1740,44 @@ public final class BuilderProcess implements IBuilderProcess {
         int inspected = 0;
         long volume = (long) schematic.widthX()
                 * schematic.heightY() * schematic.lengthZ();
-        int minY = 0;
-        int maxY = schematic.heightY() - 1;
+        if (volume <= 0L) return 1;
+        int sampleCount = (int) Math.min(
+                (long) MATERIAL_ESTIMATE_SAMPLE_LIMIT, volume);
         var world = baritone.getPlayerContext().world();
-        outer:
-        for (int y = minY; y <= maxY && required < limit; y++) {
-            for (int z = 0; z < schematic.lengthZ()
-                    && required < limit; z++) {
-                for (int x = 0; x < schematic.widthX()
-                        && required < limit; x++) {
-                    if (inspected++ >= MATERIAL_ESTIMATE_SAMPLE_LIMIT) {
-                        break outer;
-                    }
-                    BlockPos pos = origin.offset(x, y, z);
-                    boolean loaded = world.hasChunkAt(pos);
-                    BlockState current = loaded
-                            ? world.getBlockState(pos)
-                            : Blocks.AIR.defaultBlockState();
-                    if (!schematic.inSchematic(x, y, z, current)) continue;
-                    BlockState wanted = schematic.desiredState(
-                            x, y, z, current, approxPlaceable);
-                    if (wanted == null || wanted.isAir()
-                            || wanted.getBlock().asItem() != item
-                            || loaded && printerSatisfied(current, wanted)) {
-                        continue;
-                    }
-                    required++;
-                }
+        int width = schematic.widthX();
+        int length = schematic.lengthZ();
+        long deadline = System.nanoTime()
+                + MATERIAL_ESTIMATE_TIME_BUDGET_NANOS;
+        for (int sample = 0; sample < sampleCount
+                && required < limit; sample++) {
+            if ((sample & 31) == 0 && sample > 0
+                    && System.nanoTime() >= deadline) {
+                break;
             }
+            // A coprime stride spreads even a time-limited prefix throughout
+            // the volume, avoiding the old lower-layer bias.
+            long slot = (sample * 104_729L) % sampleCount;
+            long index = volume / sampleCount * slot
+                    + volume % sampleCount * slot / sampleCount;
+            int x = (int) (index % width);
+            long yz = index / width;
+            int z = (int) (yz % length);
+            int y = (int) (yz / length);
+            inspected++;
+            BlockPos pos = origin.offset(x, y, z);
+            boolean loaded = world.hasChunkAt(pos);
+            BlockState current = loaded
+                    ? world.getBlockState(pos)
+                    : Blocks.AIR.defaultBlockState();
+            if (!schematic.inSchematic(x, y, z, current)) continue;
+            BlockState wanted = schematic.desiredState(
+                    x, y, z, current, approxPlaceable);
+            if (wanted == null || wanted.isAir()
+                    || wanted.getBlock().asItem() != item
+                    || loaded && printerSatisfied(current, wanted)) {
+                continue;
+            }
+            required++;
         }
         return estimateDemandFromSample(
                 required, inspected, volume, limit);
