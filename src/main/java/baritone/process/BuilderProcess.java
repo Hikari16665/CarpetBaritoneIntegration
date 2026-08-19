@@ -1624,7 +1624,8 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private boolean canPlace(BlockState wanted) {
-        if (wanted.getBlock().asItem() == Items.AIR) return false;
+        if (wanted == null
+                || wanted.getBlock().asItem() == Items.AIR) return false;
         return baritone.getInventoryController().hasAccessibleItem(
                 stack -> stack.is(wanted.getBlock().asItem()));
     }
@@ -1651,6 +1652,7 @@ public final class BuilderProcess implements IBuilderProcess {
 
     private boolean requestRequiredMaterial(
             BlockState current, BlockState wanted) {
+        if (wanted == null) return false;
         if (wanted.is(Blocks.NETHER_PORTAL)
                 && !canIgnitePortal()) {
             return requestContainerRefill(
@@ -1661,7 +1663,7 @@ public final class BuilderProcess implements IBuilderProcess {
                 && requestContainerRefill(placement)) {
             return true;
         }
-        BlockState transformBase = current.isAir()
+        BlockState transformBase = current == null || current.isAir()
                 ? placement : current;
         Predicate<ItemStack> tool = transformBase == null ? null
                 : specialTransformationTool(transformBase, wanted);
@@ -1810,23 +1812,30 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private boolean canSatisfy(BlockState current, BlockState wanted) {
-        if (current.isAir() && wanted.is(Blocks.NETHER_PORTAL)) {
+        if (wanted == null) return false;
+        boolean emptyOrUnknown = current == null || current.isAir();
+        if (emptyOrUnknown && wanted.is(Blocks.NETHER_PORTAL)) {
             return canIgnitePortal();
         }
-        if (canPlace(wanted) || canTransform(current, wanted)) return true;
+        if (canPlace(wanted)
+                || current != null && canTransform(current, wanted)) {
+            return true;
+        }
         BlockState base = placementBase(wanted);
-        return current.isAir() && base != null && canPlace(base)
+        return emptyOrUnknown && base != null && canPlace(base)
                 && canTransform(base, wanted);
     }
 
-    private static BlockState placementStageState(
+    static BlockState placementStageState(
             BlockState current, BlockState wanted) {
-        if (!current.isAir()) return wanted;
+        if (wanted == null) return null;
+        if (current != null && !current.isAir()) return wanted;
         if (wanted.getBlock().asItem() != Items.AIR) return wanted;
         return placementBase(wanted);
     }
 
     private static BlockState placementBase(BlockState wanted) {
+        if (wanted == null) return null;
         if (wanted.is(Blocks.FARMLAND)
                 || wanted.is(Blocks.DIRT_PATH)) {
             return Blocks.DIRT.defaultBlockState();
@@ -1840,6 +1849,7 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private boolean canTransform(BlockState current, BlockState wanted) {
+        if (current == null || wanted == null) return false;
         Predicate<ItemStack> tool = specialTransformationTool(
                 current, wanted);
         return tool != null && baritone.getInventoryController()

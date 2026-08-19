@@ -1,13 +1,24 @@
 package baritone.process;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.block.Blocks;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class BuilderMaterialRecoveryTest {
+
+    @BeforeClass
+    public static void bootstrapMinecraftRegistries() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
 
     @Test
     public void containerMustBeInsideAllThreeSelectionAxes() {
@@ -42,5 +53,14 @@ public class BuilderMaterialRecoveryTest {
                 500, 1000, 10000, 2304));
         assertEquals(7, BuilderProcess.estimateDemandFromSample(
                 7, 1000, 1000, 2304));
+    }
+
+    @Test
+    public void unloadedTargetUsesSafePlacementStage() {
+        assertEquals(Blocks.STONE.defaultBlockState(),
+                BuilderProcess.placementStageState(
+                        null, Blocks.STONE.defaultBlockState()));
+        assertNull(BuilderProcess.placementStageState(
+                null, null));
     }
 }
