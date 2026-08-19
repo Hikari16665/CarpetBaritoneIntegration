@@ -48,9 +48,9 @@ final class ClientControlOptions {
         overloadMessage = payload.message();
         Minecraft client = Minecraft.getInstance();
         if (!overloadMessage.isBlank() && client.player != null) {
-            client.player.displayClientMessage(
+            client.player.sendSystemMessage(
                     net.minecraft.network.chat.Component.literal(
-                            "[CBI] " + overloadMessage), false);
+                            "[CBI] " + overloadMessage));
         }
         if (client.screen instanceof BaritoneControlScreen screen) {
             screen.overloadStateUpdated();

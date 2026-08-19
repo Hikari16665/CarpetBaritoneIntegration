@@ -24,13 +24,13 @@ public final class PathNetwork {
         PayloadTypeRegistry.clientboundPlay().register(
                 CommandResultPayload.TYPE,
                 CommandResultPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playC2S().register(
+        PayloadTypeRegistry.serverboundPlay().register(
                 OverloadStateRequestPayload.TYPE,
                 OverloadStateRequestPayload.STREAM_CODEC);
-        PayloadTypeRegistry.playC2S().register(
+        PayloadTypeRegistry.serverboundPlay().register(
                 OverloadTogglePayload.TYPE,
                 OverloadTogglePayload.STREAM_CODEC);
-        PayloadTypeRegistry.playS2C().register(
+        PayloadTypeRegistry.clientboundPlay().register(
                 OverloadStatePayload.TYPE,
                 OverloadStatePayload.STREAM_CODEC);
         registered = true;
