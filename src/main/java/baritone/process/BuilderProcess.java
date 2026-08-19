@@ -30,6 +30,7 @@ import baritone.utils.PathingCommandContext;
 import baritone.utils.schematic.format.DefaultSchematicFormats;
 import baritone.utils.schematic.SelectionSchematic;
 import baritone.utils.schematic.MapArtSchematic;
+import baritone.server.OverloadModeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
@@ -257,11 +258,13 @@ public final class BuilderProcess implements IBuilderProcess {
         if (paused) return;
         updateApproxPlaceable();
         recalcNearby();
+        boolean overload = OverloadModeManager.INSTANCE.isEnabled(baritone);
         if (!baritone.isPathing()
                 && !cleaningPathingSupports
-                && Baritone.settings().printerContinuousActions.value
+                && (overload
+                || Baritone.settings().printerContinuousActions.value
                 && Baritone.settings().printerQueueMode.value
-                == PrinterQueueMode.MULTI
+                == PrinterQueueMode.MULTI)
                 && runPrinterPlacementBatch()) {
             return;
         }
@@ -335,10 +338,14 @@ public final class BuilderProcess implements IBuilderProcess {
      * transactions of their own and therefore terminate the current batch.
      */
     private boolean runPrinterPlacementBatch() {
-        int budget = Math.max(1,
+        boolean overload = OverloadModeManager.INSTANCE.isEnabled(baritone);
+        int budget = overload ? 8192 : Math.max(1,
                 Baritone.settings().printerMaxActionsPerTick.value);
+        long deadline = overload
+                ? System.nanoTime() + 35_000_000L : Long.MAX_VALUE;
         boolean acted = false;
         for (int action = 0; action < budget; action++) {
+            if (System.nanoTime() >= deadline) return acted;
             if (target != null && positionComplete(target, desired)) {
                 incorrectPositions.remove(target);
                 observedCompleted.add(target.immutable());
@@ -377,7 +384,12 @@ public final class BuilderProcess implements IBuilderProcess {
                     continue;
                 }
                 breakTarget(current);
-                return true;
+                acted = true;
+                if (!overload) return true;
+                if (positionComplete(target, desired)) {
+                    completeTarget(target);
+                }
+                continue;
             }
             if (desired == null || desired.isAir()
                     || Baritone.settings().printerBuildMode.value
@@ -438,6 +450,7 @@ public final class BuilderProcess implements IBuilderProcess {
     }
 
     private ScanResult findNextIncorrect() {
+        boolean overload = OverloadModeManager.INSTANCE.isEnabled(baritone);
         target = null;
         desired = null;
         if (selectNextIncorrect()) return ScanResult.FOUND;
@@ -458,6 +471,11 @@ public final class BuilderProcess implements IBuilderProcess {
                 int y = minY + yz / length;
                 BlockPos worldPos = origin.offset(x, y, z);
                 if (failedUntil.containsKey(worldPos)) continue;
+                if (!baritone.getPlayerContext().world()
+                        .hasChunkAt(worldPos) && overload) {
+                    baritone.getPlayerContext().world().getChunk(
+                            worldPos.getX() >> 4, worldPos.getZ() >> 4);
+                }
                 if (!baritone.getPlayerContext().world()
                         .hasChunkAt(worldPos)) {
                     if (!observedCompleted.contains(worldPos)) {
@@ -488,7 +506,7 @@ public final class BuilderProcess implements IBuilderProcess {
                             return ScanResult.PENDING;
                         }
                         missingInScan = true;
-                    } else if (selectNextIncorrect()) {
+                    } else if (!overload && selectNextIncorrect()) {
                         return ScanResult.FOUND;
                     }
                 } else {
@@ -1292,8 +1310,14 @@ public final class BuilderProcess implements IBuilderProcess {
                 && !Baritone.settings().printerReplaceWrongBlocks.value;
     }
 
-    private static boolean printerSkipped(BlockState wanted) {
+    private boolean printerSkipped(BlockState wanted) {
         var block = wanted.getBlock();
+        if (OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            // End portals have no survival item to debit. The remaining
+            // formerly unsupported blocks all have ordinary inventory items
+            // and can be committed by exact overload placement.
+            return block instanceof EndPortalBlock;
+        }
         return block instanceof SignBlock
                 || block instanceof VineBlock
                 || block instanceof EndPortalBlock
@@ -1495,7 +1519,8 @@ public final class BuilderProcess implements IBuilderProcess {
                     Baritone.settings().printerFailureRetryTicks.value);
             return;
         }
-        if (!placement.canSurvive(
+        if (!OverloadModeManager.INSTANCE.isEnabled(baritone)
+                && !placement.canSurvive(
                 baritone.getPlayerContext().world(), target)) {
             // Usually a dependency ordering issue (missing support), not a
             // missing material. Let another target unlock this position.
