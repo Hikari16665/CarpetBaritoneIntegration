@@ -512,7 +512,7 @@ public final class ServerFakeInteractionController {
                 || !player.level().isUnobstructed(
                         null, placed.getCollisionShape(
                                 player.level(), target).move(
-                                target.getX(), target.getY(), target.getZ()))) {
+                                target.getX(), target.getY(), target.getZ())))) {
             return false;
         }
         if (!player.level().setBlockAndUpdate(target, placed)) {
@@ -728,7 +728,7 @@ public final class ServerFakeInteractionController {
                 || !player.level().isUnobstructed(
                         null, desired.getCollisionShape(
                                 player.level(), target).move(
-                                target.getX(), target.getY(), target.getZ()))) {
+                                target.getX(), target.getY(), target.getZ())))) {
             return false;
         }
         boolean supported = false;
