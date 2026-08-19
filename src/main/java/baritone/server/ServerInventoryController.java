@@ -411,6 +411,10 @@ public final class ServerInventoryController {
     }
 
     private boolean canMoveInventoryNow() {
+        if (baritone != null
+                && OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            return true;
+        }
         if (Baritone.settings().inventoryMoveOnlyIfStationary.value
                 && player.getDeltaMovement().horizontalDistanceSqr()
                 > 1.0E-4D) {

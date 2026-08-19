@@ -11,6 +11,7 @@ import baritone.api.selection.ISelection;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.RotationUtils;
 import baritone.api.utils.interfaces.IGoalRenderPos;
+import baritone.server.OverloadModeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.ClipContext;
@@ -19,7 +20,9 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -29,10 +32,15 @@ import java.util.function.Consumer;
  * scan, so flowing fluids and falling blocks cannot be skipped.
  */
 public final class CleanProcess implements ICleanProcess {
+    /** Number of vertical cells processed per local top-down work column. */
+    private static final int SAFE_MULTI_LAYER_DEPTH = 3;
+
     private enum Phase { SEAL_FLUID, BREAK_BLOCK, REMOVE_SUPPORT }
 
     private final Baritone baritone;
     private final Set<BlockPos> placedSupports = new LinkedHashSet<>();
+    private final Deque<BlockPos> fluidWorkQueue = new ArrayDeque<>();
+    private final Deque<BlockPos> layerWorkQueue = new ArrayDeque<>();
     private final Set<Long> theoreticalBreakStances =
             new LinkedHashSet<>();
     private Consumer<String> feedback = ignored -> { };
@@ -85,6 +93,8 @@ public final class CleanProcess implements ICleanProcess {
         max = selection.max().immutable();
         y = max.getY();
         sealingFluids = true;
+        fluidWorkQueue.clear();
+        layerWorkQueue.clear();
         this.feedback = feedback == null ? ignored -> { } : feedback;
         baritone.getStatusMessenger().beginTask("清空选区");
         diagnostic("fluid seal bounds=" + fluidSealMin()
@@ -93,6 +103,36 @@ public final class CleanProcess implements ICleanProcess {
     }
 
     public void serverTick() {
+        if (!OverloadModeManager.INSTANCE.isEnabled(baritone)) {
+            serverTickOnce();
+            return;
+        }
+        long deadline = System.nanoTime() + 35_000_000L;
+        int operations = 0;
+        int previousCleared = cleared;
+        int previousSealed = sealed;
+        while (isActive() && operations++ < 8192
+                && System.nanoTime() < deadline) {
+            int beforeCleared = cleared;
+            int beforeSealed = sealed;
+            BlockPos beforeTarget = target;
+            serverTickOnce();
+            if (baritone.isPathing()) break;
+            if (beforeCleared == cleared && beforeSealed == sealed
+                    && java.util.Objects.equals(beforeTarget, target)) {
+                break;
+            }
+        }
+        int changed = cleared - previousCleared + sealed - previousSealed;
+        if (changed > 0) {
+            System.out.println("[CBI-OVERLOAD] clean player="
+                    + baritone.getPlayerContext().player()
+                            .getScoreboardName()
+                    + " operations=" + changed + " phase=" + phase);
+        }
+    }
+
+    private void serverTickOnce() {
         if (!isActive()) return;
         if (Baritone.settings().diagnosticLogging.value
                 && baritone.getPlayerContext().world().getGameTime() % 20L
@@ -171,6 +211,7 @@ public final class CleanProcess implements ICleanProcess {
                 || sameCoordinates(baritone.getPlayerContext().playerFeet(),
                         interactionStance);
         if (!withinReach(target)
+                || unsafeCurrentWorkStance(target)
                 || !theoretical
                 && !baritone.getFakeInteractionController()
                         .canBreakFromHere(target)) {
@@ -206,51 +247,55 @@ public final class CleanProcess implements ICleanProcess {
 
     private void findHighestTarget() {
         if (sealingFluids) {
-            BlockPos sealMin = fluidSealMin();
-            BlockPos sealMax = fluidSealMax();
-            for (int checkY = sealMax.getY();
-                    checkY >= sealMin.getY(); checkY--) {
-                for (int z = sealMin.getZ();
-                        z <= sealMax.getZ(); z++) {
-                    for (int x = sealMin.getX();
-                            x <= sealMax.getX(); x++) {
-                        BlockPos pos = new BlockPos(x, checkY, z);
-                        if (!baritone.getPlayerContext().world()
-                                .getBlockState(pos).getFluidState()
-                                .isEmpty()) {
-                            assign(pos, checkY, Phase.SEAL_FLUID);
-                            return;
-                        }
-                    }
+            if (fluidWorkQueue.isEmpty()) refillFluidQueue();
+            while (!fluidWorkQueue.isEmpty()) {
+                BlockPos pos = fluidWorkQueue.removeFirst();
+                if (!baritone.getPlayerContext().world()
+                        .getBlockState(pos).getFluidState().isEmpty()) {
+                    assign(pos, pos.getY(), Phase.SEAL_FLUID);
+                    return;
                 }
             }
-            // Do not begin breaking until a complete scan observes no fluid.
-            sealingFluids = false;
-            diagnostic("all fluids sealed, beginning top-down break phase");
-        }
-        for (int checkY = max.getY(); checkY >= min.getY(); checkY--) {
-            BlockPos firstSolid = null;
-            for (int z = min.getZ(); z <= max.getZ(); z++) {
-                for (int x = min.getX(); x <= max.getX(); x++) {
-                    BlockPos pos = new BlockPos(x, checkY, z);
-                    BlockState state = baritone.getPlayerContext().world()
-                            .getBlockState(pos);
-                    if (state.isAir()) continue;
-                    if (!state.getFluidState().isEmpty()) {
-                        // A fluid update raced the completed seal scan. Return
-                        // to the global seal phase before breaking anything
-                        // else.
-                        sealingFluids = true;
-                        assign(pos, checkY, Phase.SEAL_FLUID);
-                        return;
-                    }
-                    if (firstSolid == null) firstSolid = pos;
-                }
-            }
-            if (firstSolid != null) {
-                assign(firstSolid, checkY, Phase.BREAK_BLOCK);
+            // A full empty rescan is the barrier between sealing and
+            // excavation. Flowing updates can send the machine back here.
+            refillFluidQueue();
+            if (!fluidWorkQueue.isEmpty()) {
+                findHighestTarget();
                 return;
             }
+            sealingFluids = false;
+            layerWorkQueue.clear();
+            y = max.getY();
+            diagnostic("all fluids sealed, beginning top-down break phase");
+        }
+
+        while (y >= min.getY()) {
+            if (layerWorkQueue.isEmpty()) refillLayerQueue(y);
+            while (!layerWorkQueue.isEmpty()) {
+                BlockPos pos = layerWorkQueue.removeFirst();
+                BlockState state = baritone.getPlayerContext().world()
+                        .getBlockState(pos);
+                if (state.isAir()) continue;
+                if (!state.getFluidState().isEmpty()) {
+                    sealingFluids = true;
+                    fluidWorkQueue.clear();
+                    layerWorkQueue.clear();
+                    assign(pos, pos.getY(), Phase.SEAL_FLUID);
+                    return;
+                }
+                assign(pos, y, Phase.BREAK_BLOCK);
+                return;
+            }
+            // Verify after the sweep. Falling blocks or neighbour updates may
+            // have repopulated this layer while the queue was processed.
+            refillLayerQueue(y);
+            if (!layerWorkQueue.isEmpty()) {
+                diagnostic("layer " + y
+                        + " changed during sweep; running verification pass");
+                return;
+            }
+            diagnostic("layer " + y + " cleared; descending safely");
+            y--;
         }
         BlockPos support = placedSupports.stream()
                 .filter(pos -> !baritone.getPlayerContext().world()
@@ -268,6 +313,60 @@ public final class CleanProcess implements ICleanProcess {
         onLostControl();
     }
 
+    /** Top-down, boustrophedon fluid queue over the one-block seal shell. */
+    private void refillFluidQueue() {
+        fluidWorkQueue.clear();
+        BlockPos sealMin = fluidSealMin();
+        BlockPos sealMax = fluidSealMax();
+        for (int checkY = sealMax.getY();
+                checkY >= sealMin.getY(); checkY--) {
+            for (int z = sealMin.getZ(); z <= sealMax.getZ(); z++) {
+                boolean reverse = ((z - sealMin.getZ())
+                        + (sealMax.getY() - checkY) & 1) != 0;
+                int startX = reverse ? sealMax.getX() : sealMin.getX();
+                int endX = reverse ? sealMin.getX() : sealMax.getX();
+                int step = reverse ? -1 : 1;
+                for (int x = startX;; x += step) {
+                    BlockPos pos = new BlockPos(x, checkY, z);
+                    if (!baritone.getPlayerContext().world()
+                            .getBlockState(pos).getFluidState().isEmpty()) {
+                        fluidWorkQueue.addLast(pos);
+                    }
+                    if (x == endX) break;
+                }
+            }
+        }
+    }
+
+    /**
+     * A back-and-forth work window. Each horizontal stop contributes a short
+     * top-down column, so one safe stance can clear several vertical cells
+     * before the actor walks away. The global frontier still descends from the
+     * top, and every candidate is revalidated immediately before interaction.
+     */
+    private void refillLayerQueue(int layer) {
+        layerWorkQueue.clear();
+        for (int z = min.getZ(); z <= max.getZ(); z++) {
+            boolean reverse = ((z - min.getZ())
+                    + (max.getY() - layer) & 1) != 0;
+            int startX = reverse ? max.getX() : min.getX();
+            int endX = reverse ? min.getX() : max.getX();
+            int step = reverse ? -1 : 1;
+            for (int x = startX;; x += step) {
+                int lowest = Math.max(min.getY(),
+                        layer - SAFE_MULTI_LAYER_DEPTH + 1);
+                for (int workY = layer; workY >= lowest; workY--) {
+                    BlockPos pos = new BlockPos(x, workY, z);
+                    if (!baritone.getPlayerContext().world()
+                            .getBlockState(pos).isAir()) {
+                        layerWorkQueue.addLast(pos);
+                    }
+                }
+                if (x == endX) break;
+            }
+        }
+    }
+
     private void assign(BlockPos pos, int layer, Phase nextPhase) {
         target = pos.immutable();
         y = layer;
@@ -276,8 +375,15 @@ public final class CleanProcess implements ICleanProcess {
     }
 
     private void sealFluid() {
-        if (!baritone.getInventoryController().selectThrowawayForLocation(
-                true, target.getX(), target.getY(), target.getZ())) {
+        boolean creativeOverload = OverloadModeManager.INSTANCE
+                .isEnabled(baritone)
+                && baritone.getPlayerContext().player()
+                        .getAbilities().instabuild;
+        if (!creativeOverload
+                && !baritone.getInventoryController()
+                        .selectThrowawayForLocation(
+                                true, target.getX(), target.getY(),
+                                target.getZ())) {
             feedback.accept("没有可用于清除流体的完整垫脚方块，清理已停止");
             baritone.getStatusMessenger().noBridgeBlocks(true);
             onLostControl();
@@ -375,7 +481,9 @@ public final class CleanProcess implements ICleanProcess {
     }
 
     private boolean canPerformCurrentInteraction() {
-        if (!withinReach(target)) return false;
+        if (!withinReach(target) || unsafeCurrentWorkStance(target)) {
+            return false;
+        }
         return phase == Phase.SEAL_FLUID
                 || baritone.getFakeInteractionController()
                         .canBreakFromHere(target)
@@ -405,6 +513,9 @@ public final class CleanProcess implements ICleanProcess {
                             feet.getY() + 1.62D,
                             feet.getZ() + 0.5D);
                     if (eye.distanceToSqr(Vec3.atCenterOf(block)) > reachSq
+                            || sameCoordinates(feet.below(), block)
+                            || sameCoordinates(feet, block)
+                            || sameCoordinates(feet.above(), block)
                             || !standable(feet)) {
                         continue;
                     }
@@ -465,6 +576,14 @@ public final class CleanProcess implements ICleanProcess {
                 && !support.getCollisionShape(world, feet.below()).isEmpty();
     }
 
+    private boolean unsafeCurrentWorkStance(BlockPos block) {
+        if (block == null) return false;
+        BetterBlockPos feet = baritone.getPlayerContext().playerFeet();
+        return sameCoordinates(block, feet)
+                || sameCoordinates(block, feet.above())
+                || sameCoordinates(block, feet.below());
+    }
+
     private static boolean sameCoordinates(BlockPos first, BlockPos second) {
         return first != null && second != null
                 && first.getX() == second.getX()
@@ -489,6 +608,16 @@ public final class CleanProcess implements ICleanProcess {
             currentGoal = null;
             updateApproachGoal();
         }
+        // Do not submit a zero-length approach calculation for a target that
+        // can already be handled from the current safe stance. In overload
+        // mode that calculation used to be created and cancelled later in the
+        // same tick, producing an unbounded worker/revalidation loop.
+        if (!baritone.isPathing() && currentGoal != null && target != null
+                && canPerformCurrentInteraction()) {
+            interactionStance = baritone.getPlayerContext()
+                    .playerFeet().immutable();
+            currentGoal = null;
+        }
         return new PathingCommand(currentGoal,
                 currentGoal == null ? PathingCommandType.REQUEST_PAUSE
                         : PathingCommandType.REVALIDATE_GOAL_AND_PATH);
@@ -510,6 +639,8 @@ public final class CleanProcess implements ICleanProcess {
         currentGoal = null;
         interactionStance = null;
         placedSupports.clear();
+        fluidWorkQueue.clear();
+        layerWorkQueue.clear();
         theoreticalBreakStances.clear();
         cleared = 0;
         sealed = 0;

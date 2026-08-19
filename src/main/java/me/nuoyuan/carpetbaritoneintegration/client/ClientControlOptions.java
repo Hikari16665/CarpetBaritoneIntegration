@@ -2,6 +2,9 @@ package me.nuoyuan.carpetbaritoneintegration.client;
 
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsPayload;
 import me.nuoyuan.carpetbaritoneintegration.network.ControlOptionsRequestPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadStatePayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadStateRequestPayload;
+import me.nuoyuan.carpetbaritoneintegration.network.OverloadTogglePayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 
@@ -20,6 +23,9 @@ final class ClientControlOptions {
     private static boolean received;
     private static boolean supported = true;
     private static String selectedFakePlayer = "";
+    private static boolean overloadEnabled;
+    private static boolean canManageOverload;
+    private static String overloadMessage = "";
 
     private ClientControlOptions() { }
 
@@ -28,8 +34,40 @@ final class ClientControlOptions {
                 ControlOptionsRequestPayload.TYPE);
         if (supported) {
             ClientPlayNetworking.send(new ControlOptionsRequestPayload());
+            if (ClientPlayNetworking.canSend(
+                    OverloadStateRequestPayload.TYPE)) {
+                ClientPlayNetworking.send(
+                        new OverloadStateRequestPayload());
+            }
         }
     }
+
+    static void acceptOverload(OverloadStatePayload payload) {
+        overloadEnabled = payload.enabled();
+        canManageOverload = payload.canManage();
+        overloadMessage = payload.message();
+        Minecraft client = Minecraft.getInstance();
+        if (!overloadMessage.isBlank() && client.player != null) {
+            client.player.displayClientMessage(
+                    net.minecraft.network.chat.Component.literal(
+                            "[CBI] " + overloadMessage), false);
+        }
+        if (client.screen instanceof BaritoneControlScreen screen) {
+            screen.overloadStateUpdated();
+        } else if (client.screen instanceof OverloadConfirmScreen screen) {
+            screen.stateUpdated();
+        }
+    }
+
+    static void setOverload(boolean enabled) {
+        if (canManageOverload && ClientPlayNetworking.canSend(
+                OverloadTogglePayload.TYPE)) {
+            ClientPlayNetworking.send(new OverloadTogglePayload(enabled));
+        }
+    }
+
+    static boolean overloadEnabled() { return overloadEnabled; }
+    static boolean canManageOverload() { return canManageOverload; }
 
     static void accept(ControlOptionsPayload payload) {
         fakePlayers = payload.fakePlayers();
@@ -102,6 +140,9 @@ final class ClientControlOptions {
         waypoints = List.of();
         received = false;
         supported = true;
+        overloadEnabled = false;
+        canManageOverload = false;
+        overloadMessage = "";
         // Keep selectedFakePlayer across disconnects and screen reopenings.
     }
 }

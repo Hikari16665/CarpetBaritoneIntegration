@@ -19,6 +19,7 @@ import baritone.server.BlockInteractionTask;
 import baritone.server.TrashDiscardController;
 import baritone.server.ServerPathingScheduler;
 import baritone.server.ServerFakeInteractionController;
+import baritone.server.OverloadExecutor;
 import baritone.api.pathing.calc.IPath;
 import baritone.api.pathing.goals.Goal;
 import baritone.api.utils.BetterBlockPos;
@@ -87,6 +88,7 @@ public final class Baritone implements IBaritone {
     private final ServerLookBehavior lookBehavior;
     private final ServerInventoryController inventoryController;
     private final ServerFakeInteractionController fakeInteractionController;
+    private final OverloadExecutor overloadExecutor;
     private final PathingBehavior pathingBehavior;
     private final TrashDiscardController trashDiscardController;
     private final FollowProcess followProcess;
@@ -155,6 +157,7 @@ public final class Baritone implements IBaritone {
         this.inventoryController.bind(this);
         this.fakeInteractionController =
                 new ServerFakeInteractionController(this);
+        this.overloadExecutor = new OverloadExecutor(this);
         this.pathingBehavior = new PathingBehavior(this);
         this.trashDiscardController = new TrashDiscardController(playerContext.player());
         this.followProcess = new FollowProcess(this);
@@ -211,6 +214,10 @@ public final class Baritone implements IBaritone {
 
     public ServerFakeInteractionController getFakeInteractionController() {
         return fakeInteractionController;
+    }
+
+    public OverloadExecutor getOverloadExecutor() {
+        return overloadExecutor;
     }
 
     public Goal getActiveGoal() {
@@ -312,9 +319,19 @@ public final class Baritone implements IBaritone {
             revalidateAndRecalculate();
         }
         if (pathExecutor != null) {
-            pathExecutor.tick();
-            if (pathExecutor.isFinished()) {
-                boolean failed = pathExecutor.failed();
+            boolean overload = baritone.server.OverloadModeManager.INSTANCE
+                    .isEnabled(this);
+            baritone.server.OverloadExecutor.Result overloadResult = overload
+                    ? overloadExecutor.tick(pathExecutor.getPath()) : null;
+            if (!overload) pathExecutor.tick();
+            boolean overloadFinished = overloadResult
+                    == baritone.server.OverloadExecutor.Result.SUCCESS
+                    || overloadResult
+                    == baritone.server.OverloadExecutor.Result.FAILED;
+            if (pathExecutor.isFinished() || overloadFinished) {
+                boolean failed = pathExecutor.failed()
+                        || overloadResult
+                        == baritone.server.OverloadExecutor.Result.FAILED;
                 pathExecutor = null;
                 if (activeGoal != null && activeGoal.isInGoal(playerContext.playerFeet())) {
                     activeGoal = null;
@@ -395,8 +412,10 @@ public final class Baritone implements IBaritone {
                         : blockTask == null ? stack -> false : blockTask::isDesiredMiningDrop);
         }
         emergencyAvoidanceController.tick();
-        autoEatController.tick(emergencyAvoidanceController.activeThreat()
-                == baritone.server.EmergencyAvoidanceController.Threat.NONE);
+        if (!baritone.server.OverloadModeManager.INSTANCE.isEnabled(this)) {
+            autoEatController.tick(emergencyAvoidanceController.activeThreat()
+                    == baritone.server.EmergencyAvoidanceController.Threat.NONE);
+        }
         statusMessenger.tick();
         taskLifecycleTracker.tick(tickCount, hasActiveTask());
         baritone.server.llm.LlmPlanCoordinator.INSTANCE.tick(this, tickCount);
@@ -424,6 +443,7 @@ public final class Baritone implements IBaritone {
         pathRecalcPending = false;
         deferredProcessRecalculation = null;
         deferredProcessCalculationContext = null;
+        overloadExecutor.reset();
         if (hadPath) gameEventHandler.onPathEvent(PathEvent.CANCELED);
     }
 
@@ -452,6 +472,7 @@ public final class Baritone implements IBaritone {
         if (pathExecutor != null && pathExecutor.isSafeToCancel()) {
             pathExecutor.cancel();
             pathExecutor = null;
+            overloadExecutor.reset();
         }
     }
 
@@ -1036,6 +1057,9 @@ public final class Baritone implements IBaritone {
 
     private void planAheadAndSplice() {
         if (pathExecutor == null || activeGoal == null) return;
+        if (baritone.server.OverloadModeManager.INSTANCE.isEnabled(this)) {
+            return;
+        }
         if (nextPathExecutor != null && pathExecutor.isSafeToCancel()
                 && nextPathExecutor.snipsnapIfPossible()) {
             gameEventHandler.onPathEvent(PathEvent.SPLICING_ONTO_NEXT_EARLY);
