@@ -116,8 +116,13 @@ public final class Settings {
             new Setting<>(true);
     public final Setting<String> llmReasoningEffort =
             new Setting<>("high");
+    /** Maximum completion budget for one model round. This includes hidden
+     * reasoning tokens on providers such as DeepSeek, so tool-planning turns
+     * need substantially more headroom than ordinary chat replies. */
+    public final Setting<Integer> llmMaxOutputTokens =
+            new Setting<>(32_768);
     public final Setting<Integer> llmRequestTimeoutSeconds =
-            new Setting<>(45);
+            new Setting<>(180);
     public final Setting<Integer> llmSessionTimeoutSeconds =
             new Setting<>(1800);
     public final Setting<Integer> llmHistoryTurns =
