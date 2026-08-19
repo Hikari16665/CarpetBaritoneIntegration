@@ -3,7 +3,7 @@ package me.nuoyuan.carpetbaritoneintegration.network;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** S2C authoritative OVERLOAD MODE state and permission view. */
 public record OverloadStatePayload(
@@ -11,7 +11,7 @@ public record OverloadStatePayload(
         implements CustomPacketPayload {
     private static final int MAX_MESSAGE_LENGTH = 512;
     public static final Type<OverloadStatePayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(
+            Identifier.fromNamespaceAndPath(
                     "carpetbaritoneintegration", "overload_state"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
             OverloadStatePayload> STREAM_CODEC =
