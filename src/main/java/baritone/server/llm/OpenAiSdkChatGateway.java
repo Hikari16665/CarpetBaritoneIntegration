@@ -14,11 +14,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Function;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Chat Completions transport backed by OpenAI's official Java SDK. */
 final class OpenAiSdkChatGateway {
-    private static final int THINKING_MAX_TOKENS = 4_096;
-    private static final int FALLBACK_MAX_TOKENS = 1_024;
+    private static final Logger LOGGER = LoggerFactory.getLogger("CBI-LLM");
 
     CompletableFuture<LlmAction> request(
             OpenAiResponsesGateway.Configuration configuration,
@@ -59,9 +61,7 @@ final class OpenAiSdkChatGateway {
         ChatCompletionCreateParams.Builder params =
                 ChatCompletionCreateParams.builder()
                         .model(configuration.model())
-                        .maxTokens(includeThinking || includeReasoningEffort
-                                ? THINKING_MAX_TOKENS
-                                : FALLBACK_MAX_TOKENS)
+                        .maxTokens(configuration.maxOutputTokens())
                         .responseFormat(ResponseFormatJsonObject
                                 .builder().build());
         for (OpenAiResponsesGateway.Message message : messages) {
@@ -79,12 +79,28 @@ final class OpenAiSdkChatGateway {
             params.putAdditionalBodyProperty("reasoning_effort",
                     JsonValue.from(configuration.reasoningEffort()));
         }
+        long started = System.nanoTime();
+        LOGGER.info("LLM SDK request protocol=chat_completions baseUrl={} "
+                        + "model={} messages={} maxOutputTokens={} thinking={} "
+                        + "reasoningEffort={} timeoutSeconds={}",
+                sdkBaseUrl(configuration.baseUrl()), configuration.model(),
+                messages.size(), configuration.maxOutputTokens(), includeThinking,
+                includeReasoningEffort ? configuration.reasoningEffort() : "-",
+                configuration.timeoutSeconds());
         CompletableFuture<ChatCompletion> request = client.chat()
                 .completions().create(params.build());
         return request.handle((completion, error) -> {
             client.close();
-            if (error != null) throw new CompletionException(
-                    safeException(error));
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - started);
+            if (error != null) {
+                LOGGER.info("LLM SDK response protocol=chat_completions "
+                        + "success=false elapsedMs={}", elapsedMillis);
+                throw new CompletionException(safeException(error));
+            }
+            LOGGER.info("LLM SDK response protocol=chat_completions "
+                            + "success=true elapsedMs={} choices={}",
+                    elapsedMillis, completion.choices().size());
             return decode(completion);
         });
     }
