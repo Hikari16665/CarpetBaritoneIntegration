@@ -54,7 +54,7 @@ public class OpenAiResponsesGatewayTest {
             LlmModelTurn turn = new OpenAiResponsesGateway().requestTools(
                     new OpenAiResponsesGateway.Configuration(endpoint,
                             LlmApiMode.CHAT_COMPLETIONS, "test", "", 5,
-                            false, ""),
+                            false, "", 32_768),
                     List.of(LlmWireMessage.message("user", "inspect"),
                             LlmWireMessage.assistantCalls(List.of(
                                     new LlmToolCall("old", "get_context", "{}"))),
@@ -68,6 +68,7 @@ public class OpenAiResponsesGatewayTest {
                     .path("role").asText());
             assertEquals("old", body.path("messages").get(2)
                     .path("tool_call_id").asText());
+            assertEquals(32_768, body.path("max_tokens").asInt());
         } finally {
             server.stop(0);
         }
@@ -321,7 +322,7 @@ public class OpenAiResponsesGatewayTest {
             JsonNode fallback = MAPPER.readTree(fallbackBody.get());
             assertFalse(fallback.has("thinking"));
             assertFalse(fallback.has("reasoning_effort"));
-            assertEquals(1024, fallback.path("max_tokens").asInt());
+            assertEquals(4096, fallback.path("max_tokens").asInt());
         } finally {
             server.stop(0);
         }

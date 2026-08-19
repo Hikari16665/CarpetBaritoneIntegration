@@ -139,6 +139,24 @@ public class LlmPlanTest {
                 tracker.pollTerminal().code());
     }
 
+    @Test
+    public void finiteTaskTimeoutHasFloorButContinuousDurationIsExact() {
+        LlmPlanTask finite = task("go", "goto", List.of(), 30);
+        LlmPlanTask continuous = task("follow", "follow", List.of(), 30);
+        assertEquals(Integer.valueOf(300),
+                LlmPlanCoordinator.effectiveTimeoutSeconds(
+                        finite, capability("goto",
+                                LlmCapabilityRegistry.CompletionMode.FINITE)));
+        assertEquals(Integer.valueOf(30),
+                LlmPlanCoordinator.effectiveTimeoutSeconds(
+                        continuous, capability("follow",
+                                LlmCapabilityRegistry.CompletionMode.CONTINUOUS)));
+        assertEquals(null, LlmPlanCoordinator.effectiveTimeoutSeconds(
+                task("unbounded", "goto", List.of(), null),
+                capability("goto",
+                        LlmCapabilityRegistry.CompletionMode.FINITE)));
+    }
+
     private static LlmPlanTask task(
             String id, String action, List<LlmDependency> dependencies,
             Integer timeout) {

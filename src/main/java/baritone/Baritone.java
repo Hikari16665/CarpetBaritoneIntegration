@@ -70,9 +70,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import me.nuoyuan.carpetbaritoneintegration.network.ServerPathSync;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** One server-side Baritone instance bound to one fake player context. */
 public final class Baritone implements IBaritone {
+    private static final Logger LOGGER = LoggerFactory.getLogger("Baritone");
 
     private final IPlayerContext playerContext;
     private final CarpetInputController inputController;
@@ -850,8 +853,24 @@ public final class Baritone implements IBaritone {
                 : PathEvent.CALC_STARTED);
         try {
             calculationFuture = ServerPathingScheduler.submit(() -> {
-                PathCalculationResult result =
-                        finder.calculate(primaryTimeout, failureTimeout);
+                PathCalculationResult result;
+                try {
+                    result = finder.calculate(primaryTimeout, failureTimeout);
+                } catch (Throwable failure) {
+                    /*
+                     * FutureTask stores worker exceptions instead of sending
+                     * them to an uncaught-exception handler. Without a
+                     * completion the server-side owner remains permanently
+                     * marked in-progress: the goal is rendered, but no
+                     * PathExecutor is ever installed and no retry occurs.
+                     */
+                    LOGGER.error("Path calculation crashed player={} goal={} "
+                                    + "generation={} nextSegment={}",
+                            playerContext.player().getScoreboardName(), goal,
+                            generation, nextSegment, failure);
+                    result = new PathCalculationResult(
+                            PathCalculationResult.Type.EXCEPTION);
+                }
                 pathCompletions.add(new PathCompletion(
                         generation, goal, start, nextSegment,
                         snapshotRevisions, context, result));
@@ -880,6 +899,14 @@ public final class Baritone implements IBaritone {
             pathingBehavior.setInProgress(null);
             calculationFuture = null;
             Optional<IPath> calculated = completion.result.getPath();
+            if (completion.result.getType()
+                    == PathCalculationResult.Type.EXCEPTION) {
+                LOGGER.warn("Recovering failed path calculation player={} "
+                                + "goal={} generation={} nextSegment={}",
+                        playerContext.player().getScoreboardName(),
+                        completion.goal, completion.generation,
+                        completion.nextSegment);
+            }
             if (settings().diagnosticLogging.value) {
                 if (calculated.isPresent()) {
                     long pillars = calculated.get().movements().stream()
