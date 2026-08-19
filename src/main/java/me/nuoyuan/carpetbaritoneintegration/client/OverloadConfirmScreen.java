@@ -48,7 +48,7 @@ final class OverloadConfirmScreen extends AbstractScreen {
         addWidget(disable);
         addWidget(new ButtonWidget(left, top + 158, panelWidth, 22,
                 Component.literal("返回"), button ->
-                minecraft.setScreen(parent)));
+                minecraft.gui.setScreen(parent)));
         refresh();
         super.init();
     }

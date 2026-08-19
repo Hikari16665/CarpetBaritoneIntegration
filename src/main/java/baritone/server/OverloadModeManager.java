@@ -5,6 +5,7 @@ import carpet.patches.EntityPlayerMPFake;
 import me.nuoyuan.carpetbaritoneintegration.mixin.FoodDataAccessor;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permissions;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +31,7 @@ public final class OverloadModeManager {
     }
 
     public boolean isEnabled(ServerPlayer player) {
-        return player != null && isEnabled(player.getServer());
+        return player != null && isEnabled(player.level().getServer());
     }
 
     public boolean isEnabled(Baritone baritone) {
@@ -39,7 +40,8 @@ public final class OverloadModeManager {
     }
 
     public boolean canManage(ServerPlayer player) {
-        return player != null && player.hasPermissions(2);
+        return player != null && player.permissions()
+                .hasPermission(Permissions.COMMANDS_GAMEMASTER);
     }
 
     public boolean setEnabled(

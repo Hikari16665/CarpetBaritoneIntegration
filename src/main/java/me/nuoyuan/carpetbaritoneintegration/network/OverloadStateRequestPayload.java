@@ -3,12 +3,12 @@ package me.nuoyuan.carpetbaritoneintegration.network;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** C2S request for the server-authoritative OVERLOAD MODE state. */
 public record OverloadStateRequestPayload() implements CustomPacketPayload {
     public static final Type<OverloadStateRequestPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(
+            Identifier.fromNamespaceAndPath(
                     "carpetbaritoneintegration", "overload_state_request"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
             OverloadStateRequestPayload> STREAM_CODEC =

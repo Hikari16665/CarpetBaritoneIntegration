@@ -45,7 +45,7 @@ public final class BaritoneControlScreen extends AbstractScreen {
 
         overloadButton = new ButtonWidget(left, top + 22,
                 panelWidth, 22, Component.empty(), button ->
-                minecraft.setScreen(new OverloadConfirmScreen(this)));
+                minecraft.gui.setScreen(new OverloadConfirmScreen(this)));
         addWidget(overloadButton);
 
         fakeSelector = new ButtonWidget(left, top + 50,
